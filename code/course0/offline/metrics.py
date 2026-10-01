@@ -16,7 +16,7 @@ sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 def main():
     # Create an LLM.
     llm = LLM(
-        model="Qwen/Qwen3-1.7B",
+        model="/home/lin/vllm_code/model/qwen3-0.6b",
         max_model_len=4096,
         max_num_seqs=128,
         gpu_memory_utilization=0.9,

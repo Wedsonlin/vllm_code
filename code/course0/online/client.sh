@@ -6,7 +6,7 @@ curl -s --noproxy '*' http://127.0.0.1:13311/v1/models | jq .
 curl -s --noproxy '*' http://127.0.0.1:13311/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen/Qwen3-1.7B",
+    "model": "qwen3-0.6b",
     "messages": [{"role": "user", "content": "用20字介绍vLLM"}],
     "max_tokens": 30,
     "temperature": 0.6
