@@ -14,14 +14,15 @@ Target repo after PR: https://github.com/Wedsonlin/vllm_code
 | E 分布式 | `E1_dp_lb_modes`, `E2_tp_shard_math`, `E3_moe_dispatch_sim` |
 | F 高级特性与性能 | `F1_rejection_sampler_sim`, `F2_profiler_checklist`, `F3_kv_state_machine` |
 
-Full lesson docs live in Feishu; this package is the **verifiable practice track**.
+Deep Feishu-aligned lesson bodies live in `course/revised/`; this package is the **verifiable practice track**.
 
 ## Repository layout
 
-The exercise track sits next to the original lesson demos. `pytest` does not import `code/` and does not download models.
+The exercise track sits next to the original lesson demos. `pytest` does not import `code/` or `course/` and does not download models.
 
 | Path | Role |
 |------|------|
+| `course/revised/` | Deep Feishu-aligned Chinese lesson bodies (A1–F4 + R1), mermaid, source walkthroughs |
 | `exercises/` | Practice track for Feishu modules A–F |
 | `common/` | Shared fixtures and the CUDA skip helper |
 | `code/` | Original course demos (unchanged) |
@@ -38,7 +39,7 @@ See `exercises/README.md` for markers, GPU notes, and per-lesson layout.
 
 ## Learner workflow
 
-1. Read Feishu lesson (动机 → 可视化 → 源码要点).
+1. Read `course/revised/<lesson>.md` (or the matching Feishu page: 动机 → 可视化 → 源码要点).
 2. Open `exercises/<ID>/README.md` for acceptance criteria.
 3. Optionally replace the reference module with `starter/` stubs and re-implement.
 4. Run `pytest exercises/<ID> -q` until green.
