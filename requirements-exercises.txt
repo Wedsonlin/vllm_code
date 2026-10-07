@@ -1,0 +1,8 @@
+# Core (CPU CI / local smoke)
+pytest>=7.0
+numpy>=1.24
+
+# Optional extras — install only if you have the stack:
+#   pip install torch  # for optional torch paths / GPU markers
+#   pip install pyzmq  # optional; B1 uses queue simulation by default
+#   pip install triton # optional GPU kernel path for C1
