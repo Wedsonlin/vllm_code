@@ -10,7 +10,7 @@ sequenceDiagram
     EX->>WP: WorkerProc.make_worker_process()（spawn 进程 + ready_pipe）
   end
   WP->>W: WorkerWrapperBase.init_worker() → Worker(...)
-  WP->>W: init_device()（set_device、init_distributed_environment、建 TP/PP 组）
+  WP->>W: init_device()（set_device_index、init_distributed_environment、建 TP/PP 组）
   WP->>W: load_model()（见 B5）
   WP-->>EX: ready_pipe.send({status: READY, 响应队列句柄})
   EX->>EX: wait_for_ready()：收齐 N 个 READY，连上各 worker_response_mq

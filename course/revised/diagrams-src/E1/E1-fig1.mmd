@@ -17,7 +17,7 @@ flowchart TB
   API1 --> EC1
   API1 --> EC2
   API2 --> EC0
-  EC0 -- "队列长度 (waiting, running)" --> COORD
+  EC0 -- "负载统计 (waiting, running, KV 使用率)" --> COORD
   EC1 --> COORD
   EC2 --> COORD
   COORD -- "发布各引擎负载快照" --> API1

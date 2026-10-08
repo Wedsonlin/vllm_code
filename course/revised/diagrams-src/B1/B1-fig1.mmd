@@ -1,7 +1,7 @@
 flowchart LR
   subgraph FE["前端进程（API Server）"]
     H["FastAPI 路由<br/>OpenAIServingChat / Completion"] --> A["AsyncLLM"]
-    A --> IP["Processor / InputProcessor<br/>tokenize + 校验"]
+    A --> IP["InputProcessor<br/>tokenize + 校验"]
     A --> OH["output_handler 后台 Task"]
     OH --> OP["OutputProcessor<br/>增量 detokenize / stop 判断"]
     OP --> Q["每请求 RequestOutputCollector"]

@@ -9,7 +9,7 @@ sequenceDiagram
   C->>G: 拷贝 input_ids / positions / slot_mapping 等
   G->>G: 前向、采样
   G->>C: 同步拷回采样结果，写回 CPU 状态
-  Note over S,G: V2：CPU 只传最少信息【待核】
+  Note over S,G: V2：CPU 只传最少信息
   S->>C: SchedulerOutput（增量）
   C->>G: 拷贝本步 token 数与槽位索引（几 KB）
   G->>G: prepare_inputs kernel → 前向 → 采样 → 写回 GPU 状态

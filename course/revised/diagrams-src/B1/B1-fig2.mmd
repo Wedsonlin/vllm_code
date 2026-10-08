@@ -3,7 +3,7 @@ sequenceDiagram
   participant C as 客户端
   participant API as OpenAIServingChat
   participant A as AsyncLLM
-  participant P as Processor
+  participant P as InputProcessor
   participant OP as OutputProcessor
   participant CL as AsyncMPClient
   participant IO as EngineCore IO 线程
@@ -17,7 +17,7 @@ sequenceDiagram
   IO->>BL: input_queue.put((ADD, req))
   loop 每个 engine step
     BL->>BL: scheduler.schedule()
-    BL->>BL: executor.execute_model()
+    BL->>BL: executor.execute_model() → sample_tokens()
     BL->>BL: scheduler.update_from_output()
     BL->>IO: output_queue.put(EngineCoreOutputs)
     IO-->>CL: PUSH 多帧

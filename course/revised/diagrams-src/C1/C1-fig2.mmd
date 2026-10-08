@@ -14,6 +14,7 @@ sequenceDiagram
     MR->>MB: build(common_prefix_len, CommonAttentionMetadata)
     MB-->>MR: 后端专用 attn_metadata
     MR->>L: model(...) 前向（经 forward context）
+    L->>I: do_kv_cache_update（经 unified_kv_cache_update 写入新 K/V）
     L->>I: forward(layer, q, k, v, kv_cache, attn_metadata, output)
-    I->>I: reshape_and_cache 写新 K/V → 调 kernel 计算注意力
+    I->>I: 调用 kernel 计算注意力
   end

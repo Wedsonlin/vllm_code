@@ -3,7 +3,7 @@ flowchart TB
   MR --> GL["get_model_loader(load_config)<br/>model_loader/__init__.py"]
   GL --> DL["DefaultModelLoader<br/>safetensors / pt"]
   GL --> DU["DummyModelLoader<br/>随机权重"]
-  GL --> OT["ShardedStateLoader / BitsAndBytes / GGUF / RunAI streamer ..."]
+  GL --> OT["ShardedStateLoader / Tensorizer / RunAI streamer ..."]
   DL --> BL["BaseModelLoader.load_model()"]
   BL --> IM["initialize_model()<br/>ModelRegistry 解析 architectures"]
   IM --> MC["LlamaForCausalLM(vllm_config, prefix)"]

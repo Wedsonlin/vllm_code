@@ -13,7 +13,7 @@ sequenceDiagram
   S->>M: allocate_slots(req, num_new_tokens, 命中数, 命中块, lookahead)
   M->>C: get_num_blocks_to_allocate()
   M->>P: get_num_free_blocks() 不够则返回 None（触发抢占）
-  M->>C: save_new_computed_blocks()（命中块 touch：ref+1，移出空闲队列）
+  M->>C: allocate_new_computed_blocks()（命中块 touch：ref+1，移出空闲队列）
   M->>C: allocate_new_blocks() → P.get_new_blocks(n)（队首弹出，必要时驱逐旧哈希）
   M->>C: cache_blocks()：新写满的块计算哈希并登记
   Note over S,P: ③ 请求结束或被抢占

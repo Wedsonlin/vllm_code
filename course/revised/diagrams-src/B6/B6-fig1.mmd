@@ -1,6 +1,6 @@
 flowchart TB
   L1["① 入口层<br/>LLM（离线） / api_server + OpenAIServing*（在线）"]
-  L2["② 前端引擎层<br/>LLMEngine / AsyncLLM + Processor + OutputProcessor"]
+  L2["② 前端引擎层<br/>LLMEngine / AsyncLLM + InputProcessor + OutputProcessor"]
   L3["③ 引擎客户端层<br/>EngineCoreClient：Inproc / SyncMP / AsyncMP / DP"]
   L4["④ 引擎核心层<br/>EngineCore(Proc)：Scheduler + KVCacheManager + StructuredOutputManager"]
   L5["⑤ 执行器层<br/>Executor：UniProc / Multiproc / Ray"]

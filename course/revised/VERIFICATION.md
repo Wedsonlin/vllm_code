@@ -18,7 +18,7 @@
 
 正文与页脚共 59 处，其中 CONFIRMED 19、CORRECTED 39、UNVERIFIABLE-REWORDED 1、保留 0。
 
-edits.json 共 116 条替换（其中第 8 节所述未标注处修正 22 条）。与【待核】标记相关的替换：其中标记替换 68 条、页首 21 条，另有 5 条依赖性修改（这些文字本身没有标记，但内容直接依赖于某项更正）。
+edits.json 共 120 条替换（其中第 8 节所述未标注处修正 26 条）。与【待核】标记相关的替换：其中标记替换 68 条、页首 21 条，另有 5 条依赖性修改（这些文字本身没有标记，但内容直接依赖于某项更正）。
 
 ## 2. 最重要的更正
 
@@ -163,7 +163,7 @@ edits.json 共 116 条替换（其中第 8 节所述未标注处修正 22 条）
 - 提取 21 课中全部行内代码标识符、`VLLM_*` 环境变量与 `--` 参数，逐一在 `/workspace/vllm-src` 中检索是否存在；
 - 对同一行中“文件路径 + 符号”的组合，检查该符号是否确实定义在所写的文件中。
 
-修正共 22 处（`kind` 为 `extra` / `extra-insert`），均已写入 `/workspace/feishu-lessons-verified/` 与 `edits.json`。保留旧名称的括注，是为了方便阅读旧版本代码的读者对照。
+修正共 26 处（X01–X22 为第二轮检索结果，X23–X26 为第三轮图示核对时为保持正文与图示一致而补充）（`kind` 为 `extra` / `extra-insert`），均已写入 `/workspace/feishu-lessons-verified/` 与 `edits.json`。保留旧名称的括注，是为了方便阅读旧版本代码的读者对照。
 
 | ID | 课 | 修正内容 | 证据（v0.30.0） |
 |---|---|---|---|
@@ -189,6 +189,10 @@ edits.json 共 116 条替换（其中第 8 节所述未标注处修正 22 条）
 | X20 | B2 | B2 §4-5：init_device 中的 torch.cuda.set_device → torch.accelerator.set_device_index | vllm-src/vllm/v1/worker/gpu_worker.py:360,424 |
 | X21 | B6 | B6 §0：在先修要求段落之后新增“版本说明”段落（V2 为默认、V1 为回退、参见 F4） | vllm-src/vllm/envs.py:300,2037-2038; vllm/config/vllm.py:675-723,2815-2882; vllm/v1/worker/gpu_worker.py:469-478; vllm/v1/worker/gpu/model_runner.py:187,1631,1997 |
 | X22 | B6 | B6 §4：在介绍 GPUModelRunner 处注明其为 V1 实现，V2 位置见 F4 | vllm-src/vllm/v1/worker/gpu/model_runner.py:187; vllm/config/vllm.py:675-723 |
+| X23 | E2 | E2 §PP 消除气泡：max_concurrent_batches 属于 VllmConfig 而非 Executor，异步调度 + V2 时为 PP+1（与图 E2-fig2 一致） | vllm-src/vllm/config/vllm.py:589-599; vllm/v1/engine/core.py:210-237 |
+| X24 | E2 | E2 §源码：max_concurrent_batches 的位置 multiproc_executor.py → config/vllm.py | vllm-src/vllm/config/vllm.py:589（multiproc_executor.py 中已无 max_concurrent_batches） |
+| X25 | B6 | B6 §4 第 10 步：细化首轮 Q18 的表述，区分同步/异步调度下草稿的回传方式（与图 F1-fig1/fig2 一致） | vllm-src/vllm/v1/engine/core.py:621-628,727-735; vllm/v1/core/sched/async_scheduler.py:16,42-44; vllm/v1/core/sched/scheduler.py:2404-2460 |
+| X26 | C1 | C1 §源码-4：补入 KV 写入算子 unified_kv_cache_update（与图 C1-fig2 一致） | vllm-src/vllm/model_executor/layers/attention/attention.py:540-575,716-740; vllm/v1/attention/backends/triton_attn.py:316,756; vllm/v1/attention/backends/flash_attn.py:320,1438 |
 
 ### 8.1 不确定、未作修改的项
 
@@ -201,3 +205,70 @@ edits.json 共 116 条替换（其中第 8 节所述未标注处修正 22 条）
 - **以“旧版本中为……”括注保留的旧名称**（如 `VLLM_ALL2ALL_BACKEND`、`VLLM_ATTENTION_BACKEND`、`VLLM_TORCH_PROFILER_DIR`、`gpu_cache_usage_perc`、`P2pNcclConnector`、`SharedStorageConnector`、`FusedMoE`、`FusionPass`、`AttnFusionPass`、`rebalance_algo.py`、`--eplb-window-size` 等）：属于有意保留的对照说明。
 - **检索方法的局限**：本轮检索只能发现“名称已不存在或位置不符”的问题，无法发现名称仍存在但语义或默认值已变化的表述。对于默认值类表述，除已核对的 B3 参数表（`--max-num-seqs` 为 256～1 024，`--long-prefill-token-threshold` 为 0，均与 `arg_utils.py:2730-2792`、`config/scheduler.py:70` 一致）外，未作系统性复核。
 
+
+## 9. 图示核对
+
+本节为 2026-10-08（UTC+8）对全部 45 幅图示的核对结果。Mermaid 源文件位于 `/workspace/mmdc/src/<ID>/<ID>-figN.mmd`，图中标签逐项核对了两方面：
+
+- 是否与 v0.30.0 源码（`/workspace/vllm-src`）一致，核对对象包括标识符、路径、参数、环境变量与行为描述；
+- 是否与已更正的课件正文（`/workspace/feishu-lessons-verified/`）一致。
+
+仍然存在的名称不作修改，例如 `LLMEngine.step`、`FusedMoEMethodBase`、`Fp8LinearMethod`、`cutlass_scaled_mm`、`RayDistributedExecutor`、`WorkerWrapperBase`、`rpc_broadcast_mq`、`FreeKVCacheBlockQueue`、`find_longest_cache_hit`、`CudagraphDispatcher`、`initialize_cudagraph_keys`、`PostGradPassManager`、`START_DP_WAVE`、`execute_dummy_batch`、`rearrange_expert_weights_inplace`、`VLLM_NIXL_SIDE_CHANNEL_PORT`，以及 A1 图 2 中的各条日志文本。改动遵循以下原则：只修正确属过时或与正文不一致的标签，保持原有布局，标签尽量简短。修改前的源文件与 PNG 备份于 `/workspace/daihe/diagrams/`。
+
+### 9.1 图示改动（共 19 处标签修改，涉及 14 幅图；另有 F4 图 1、图 2 因源文件已删除【待核】而重新渲染）
+
+| 图 | 修改内容 | 原标签 | 新标签 | 证据（v0.30.0） |
+|---|---|---|---|---|
+| B1-fig1 | 前端组件名统一为 InputProcessor（与 B1 正文 Q05 一致） | IP["Processor / InputProcessor<br/>tokenize + 校验"] | IP["InputProcessor<br/>tokenize + 校验"] | vllm-src/vllm/v1/engine/input_processor.py:38; vllm/v1/engine/async_llm.py:146 |
+| B1-fig2 | 参与者 Processor → InputProcessor | participant P as Processor | participant P as InputProcessor | vllm-src/vllm/v1/engine/input_processor.py:38,281 |
+| B1-fig2 | 每步执行拆分为 execute_model 与 sample_tokens（与 B1 正文 Q06 一致） | BL->>BL: executor.execute_model() | BL->>BL: executor.execute_model() → sample_tokens() | vllm-src/vllm/v1/engine/core.py:589-619 |
+| B2-fig2 | torch.cuda.set_device → torch.accelerator.set_device_index（与 B2 正文 X20 一致） | init_device()（set_device、init_distributed_environment、建 TP/PP 组） | init_device()（set_device_index、init_distributed_environment、建 TP/PP 组） | vllm-src/vllm/v1/worker/gpu_worker.py:360,424,432 |
+| B4-fig2 | save_new_computed_blocks → allocate_new_computed_blocks | M->>C: save_new_computed_blocks()（命中块 touch：ref+1，移出空闲队列） | M->>C: allocate_new_computed_blocks()（命中块 touch：ref+1，移出空闲队列） | vllm-src/vllm/v1/core/kv_cache_coordinator.py:233; vllm/v1/core/kv_cache_manager.py:571（save_new_computed_blocks 已不存在） |
+| B5-fig1 | 删除已迁出主仓库的 BitsAndBytes / GGUF 加载器，补入仍在注册表中的 Tensorizer（与 D2 正文 Q36 一致） | OT["ShardedStateLoader / BitsAndBytes / GGUF / RunAI streamer ..."] | OT["ShardedStateLoader / Tensorizer / RunAI streamer ..."] | vllm-src/vllm/model_executor/model_loader/__init__.py:50-66; docs/features/quantization/bnb.md:6-13; docs/features/quantization/gguf.md:6-13 |
+| B6-fig1 | Processor → InputProcessor | LLMEngine / AsyncLLM + Processor + OutputProcessor | LLMEngine / AsyncLLM + InputProcessor + OutputProcessor | vllm-src/vllm/v1/engine/input_processor.py:38 |
+| B6-fig2 | Processor → InputProcessor | add_request() × N（Processor 转为 EngineCoreRequest） | add_request() × N（InputProcessor 转为 EngineCoreRequest） | vllm-src/vllm/v1/engine/llm_engine.py; vllm/v1/engine/input_processor.py:281 |
+| B6-fig2 | 忙循环调用 step_fn：启用异步调度（默认）或 PP>1 时为 step_with_batch_queue（与 B1 正文第 7 步一致） | C->>K: （另一进程）run_busy_loop → step() | C->>K: （另一进程）run_busy_loop → step_fn()（step 或 step_with_batch_queue） | vllm-src/vllm/v1/engine/core.py:210-237,630; vllm/config/vllm.py:589-599 |
+| B6-fig2 | 补入 sample_tokens 调用：ModelRunnerOutput 由 sample_tokens 返回（与 B6 正文 Q18 一致） | X->>R: Worker.execute_model → GPUModelRunner.execute_model⏎    R-->>X: ModelRunnerOutput | X->>R: Worker.execute_model → GPUModelRunner.execute_model⏎    K->>X: sample_tokens(grammar_output)⏎    X->>R: GPUModelRunner.sample_tokens⏎    R-->>X: ModelRunnerOutput | vllm-src/vllm/v1/engine/core.py:589-619; vllm/v1/worker/gpu_model_runner.py:4187,4566 |
+| C1-fig2 | KV 写入在 Triton/FlashAttention 等后端中已从 Impl.forward 拆出，改由 unified_kv_cache_update → do_kv_cache_update 先行完成 | L->>I: forward(layer, q, k, v, kv_cache, attn_metadata, output)⏎    I->>I: reshape_and_cache 写新 K/V → 调 kernel 计算注意力 | L->>I: do_kv_cache_update（经 unified_kv_cache_update 写入新 K/V）⏎    L->>I: forward(layer, q, k, v, kv_cache, attn_metadata, output)⏎    I->>I: 调用 kernel 计算注意力 | vllm-src/vllm/model_executor/layers/attention/attention.py:540-575,716-740; vllm/v1/attention/backends/triton_attn.py:316,756-790; vllm/v1/attention/backends/flash_attn.py:320,1438 |
+| C2-fig2 | dispatch 签名：接收 num_tokens 等参数，返回 (mode, BatchDescriptor)（与 B6 正文 Q17 一致） | MR->>D: dispatch(BatchDescriptor(num_tokens, uniform_decode)) | MR->>D: dispatch(num_tokens, uniform_decode, ...) | vllm-src/vllm/v1/cudagraph_dispatcher.py:235-243; vllm/v1/worker/gpu_model_runner.py:3999-4006 |
+| E1-fig1 | 引擎上报的统计含 KV 使用率（与 E1 正文 Q40 的打分公式一致） | EC0 -- "队列长度 (waiting, running)" --> COORD | EC0 -- "负载统计 (waiting, running, KV 使用率)" --> COORD | vllm-src/vllm/v1/engine/coordinator.py:142; vllm/v1/engine/core_client.py:1546-1597 |
+| E2-fig2 | max_concurrent_batches 取值（与 B2 正文 Q09 一致） | Note over EC,S1: max_concurrent_batches = PP 大小，两个 stage 同时忙碌 | Note over EC,S1: max_concurrent_batches ≥ PP 大小（异步调度 + V2 时为 PP+1），两个 stage 同时忙碌 | vllm-src/vllm/config/vllm.py:589-599 |
+| E4-fig2 | FusedMoE 类已不存在，前向入口为 MoERunner（与 E3 正文 X01-X04 一致） | participant M as FusedMoE 前向（每层） | participant M as MoE 层前向（MoERunner） | vllm-src/vllm/model_executor/layers/fused_moe/runner/moe_runner.py:227,681; vllm/model_executor/layers/fused_moe/layer.py:88 |
+| E4-fig2 | rebalance 算法 → DefaultEplbPolicy（与 E4 正文 X08 一致） | participant A as rebalance 算法 | participant A as EPLB 策略（DefaultEplbPolicy） | vllm-src/vllm/distributed/eplb/policy/default.py:21,275; vllm/distributed/eplb/policy/__init__.py:10 |
+| E4-fig2 | 参数 num_gpus → num_ranks | S->>A: rebalance_experts(负载, 副本总数, 组数, 节点数, GPU 数) | S->>A: rebalance_experts(负载, 副本总数, 组数, 节点数, rank 数) | vllm-src/vllm/distributed/eplb/policy/default.py:275-283 |
+| F1-fig1 | 草稿不随 ModelRunnerOutput 返回：同步调度时经 take_draft_token_ids 交回调度器，异步调度（默认）时留在 Worker 侧 | DR -->\|"下一步的 spec_token_ids"\| SCH | DR -->\|"下一步草稿：同步调度经 take_draft_token_ids 交回；<br/>异步调度时留在 Worker，调度器仅预留占位"\| SCH | vllm-src/vllm/v1/engine/core.py:621-628,727-735; vllm/v1/core/sched/scheduler.py:2404-2460; vllm/v1/core/sched/async_scheduler.py:16,42-44; vllm/v1/outputs.py:324-363,430 |
+| F1-fig2 | ModelRunnerOutput 不含 spec_token_ids，改为注释说明草稿的回传方式（与 B6 正文 Q18 及 X25 一致） | R-->>S: sampled_token_ids=[d1,d2,y3]，spec_token_ids=[e1,e2,e3] | R-->>S: ModelRunnerOutput：sampled_token_ids=[d1,d2,y3]⏎  Note over S,R: 新草稿 [e1,e2,e3] 不在输出中：同步调度时经 take_draft_token_ids() 交回；异步调度时留在 Worker | vllm-src/vllm/v1/outputs.py:324-363（ModelRunnerOutput 无 spec_token_ids 字段）; vllm/v1/engine/core.py:621-628; vllm/v1/core/sched/async_scheduler.py:16,42-44 |
+| F4-fig1 | 源文件中已删除【待核】，子图标题为“ModelRunner V2（GPU 为中心，v0.30.0 默认）”；仅重新渲染 | — | — | vllm/config/vllm.py:675-723（V2 为默认） |
+| F4-fig2 | 源文件中已删除【待核】（“V2：CPU 只传最少信息”）；仅重新渲染 | — | — | vllm/v1/worker/gpu/README.md:1-3 |
+
+重新渲染的 PNG 共 16 个：B1-fig1、B1-fig2、B2-fig2、B4-fig2、B5-fig1、B6-fig1、B6-fig2、C1-fig2、C2-fig2、E1-fig1、E2-fig2、E4-fig2、F1-fig1、F1-fig2、F4-fig1、F4-fig2。渲染命令与 `render.sh` 相同（`-b white -s 2`），渲染后已逐一目视检查：中文与符号均正常显示，无缺字方框，文字清晰可读，布局与原图一致。新 PNG 已同步至以下三处：
+
+- `/workspace/feishu-diagrams/<ID>/`
+- `/workspace/feishu-lessons-verified/images/<ID>/`
+- 归档中的 `course/revised/images/<ID>/`
+
+此外，`/workspace/feishu-diagrams/manifest.json` 中对应图示的 `width_px` / `height_px` 已更新为新尺寸，其余字段未变。
+
+**图题**：各图的含义未发生变化，课件正文中的图题（及 feishu-paste-verified 中的对应文本）均未修改。
+
+**为保持正文与图示一致而补充的正文修改**：见第 8 节 X23–X26。
+
+- X23、X24（E2）：`max_concurrent_batches` 属于 `VllmConfig`，异步调度与 V2 同时启用时为 PP+1。
+- X25（B6）：区分同步与异步调度下草稿 token 的回传方式。这是对首轮 Q18 表述的细化，因为在异步调度（默认）下，草稿并不经 `take_draft_token_ids()` 交回调度器。
+- X26（C1）：补入 KV 写入算子 `unified_kv_cache_update`。
+
+### 9.2 核对后未修改、但需说明的项
+
+- **C1-fig2**：选择器注释中的“block_size”仍是后端选择的依据，只是在 v0.30.0 中改为在函数内部从 `cache_config` 读取，不再是参数。图中的表述不构成错误，因此保留。
+- **C2-fig1**：连线标签“运行时：BatchDescriptor(num_tokens, uniform_decode)”描述的是分发器内部用于查找的键（`dispatch()` 内部构造 `BatchDescriptor` 后查表，见 `cudagraph_dispatcher.py:235-260`），与正文 C2 第 99 行一致，因此保留。
+- **F2-fig2**：“torch.profiler.start()”对应 `--profiler-config` 中 `profiler="torch"` 的情形；若设置为 `cuda`，则改为调用 CUDA profiler API。图中描述的是常用路径，因此保留。
+- **F3-fig2**：“num_computed_tokens = 已加载数”是简化写法。按正文 Q66，当已加载数等于请求总长度时，调度器会将其回退为 `len−1`。这一细节由正文说明，图中未改。
+- **E4-fig2**：“完成后原子切换映射表”。`EPLBConfig.use_async` 默认为 `true`，即重排以非阻塞方式进行，但映射表最终仍是整体切换，因此保留。
+- **B3 正文第 106 行**：“请求的 `spec_token_ids` 由上一步的 drafter 产生”。在异步调度（默认）下，调度器侧的 `spec_token_ids` 实际是值为 −1 的占位（`async_scheduler.py:16,42-44`），真实草稿保留在 Worker 侧。这属于概念层面的简化，未修改，建议课程负责人决定是否补充说明。
+- **B5-fig1**：加载器列表以“...”结尾，未列出 ModelExpress、IPC cache 等较新的加载器，不构成错误。
+
+
+
+## 10. 补充更正
+
+- B3「投机解码（F1）」段：原文称 `spec_token_ids` 均由上一步 drafter 产生；已区分同步调度与默认启用的异步调度（异步调度下调度器仅保留 −1 占位符，草稿保留在 Worker 端），依据见第 9 节 F1 图示核对（`core.py:621-628`、`async_scheduler.py:16,42-44`）。

@@ -10,5 +10,5 @@ flowchart LR
   end
   SCH -->|"scheduled_spec_decode_tokens"| PREP --> FWD --> RS
   RS -->|"每请求接受的 token（可变长）"| DR
-  DR -->|"下一步的 spec_token_ids"| SCH
+  DR -->|"下一步草稿：同步调度经 take_draft_token_ids 交回；<br/>异步调度时留在 Worker，调度器仅预留占位"| SCH
   RS -->|"ModelRunnerOutput：sampled_token_ids"| SCH

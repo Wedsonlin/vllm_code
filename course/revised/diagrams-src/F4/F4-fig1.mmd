@@ -6,7 +6,7 @@ flowchart TB
     D1 --> E1["前向 + 采样"]
     E1 --> F1["D2H 拷贝采样结果 → 写回 CPU InputBatch"]
   end
-  subgraph V2["ModelRunner V2（GPU 为中心）【待核】"]
+  subgraph V2["ModelRunner V2（GPU 为中心，v0.30.0 默认）"]
     A2["SchedulerOutput 增量"] --> B2["新请求：一次性写入 GPU 请求状态表"]
     B2 --> C2["小张量 H2D：本步每请求 token 数、槽位索引"]
     C2 --> D2["prepare_inputs Triton kernel：GPU 上生成全部输入"]

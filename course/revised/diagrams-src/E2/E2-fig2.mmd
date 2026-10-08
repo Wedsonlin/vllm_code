@@ -11,4 +11,4 @@ sequenceDiagram
   S0->>S1: 批次 B 的中间张量
   EC->>S0: 批次 A'（A 的下一步）
   S1-->>EC: 批次 B 的结果
-  Note over EC,S1: max_concurrent_batches = PP 大小，两个 stage 同时忙碌
+  Note over EC,S1: max_concurrent_batches ≥ PP 大小（异步调度 + V2 时为 PP+1），两个 stage 同时忙碌
