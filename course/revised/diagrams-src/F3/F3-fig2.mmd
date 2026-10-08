@@ -1,0 +1,20 @@
+sequenceDiagram
+  autonumber
+  participant PX as Proxy
+  participant PS as P 调度器
+  participant PW as P Worker
+  participant DS as D 调度器
+  participant DW as D Worker
+  PX->>PS: 请求（max_tokens=1, do_remote_decode=true）
+  PS->>PW: 正常 prefill，KV 写入 P 的块
+  PS->>PS: 请求完成 → connector.request_finished() 返回 delay_free=True + kv_transfer_params
+  PS-->>PX: 首 token（可丢弃）+ kv_transfer_params（含 P 的块 id）
+  PX->>DS: 原请求 + kv_transfer_params（do_remote_prefill=true）
+  DS->>DS: get_num_new_matched_tokens() → (prompt 中需远端加载的 token 数, 异步=True)
+  DS->>DS: allocate_slots → update_state_after_alloc()，状态 WAITING_FOR_REMOTE_KVS
+  DS->>DW: build_connector_meta() 随 SchedulerOutput 下发"要拉取哪些块"
+  DW->>PW: 首次与该引擎通信：侧信道握手，获取 P 的 KV 基址、块长度、TP 布局
+  DW->>PW: NIXL READ（按块描述符批量拉取）
+  DW-->>DS: get_finished() 报告 done_recving
+  DS->>DS: 状态转回 WAITING，num_computed_tokens = 已加载数 → 正常调度 decode
+  DW->>PW: 发送通知 → P 侧 get_finished() 报告 done_sending → P 释放块

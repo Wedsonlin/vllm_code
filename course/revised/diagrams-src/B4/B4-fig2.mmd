@@ -1,0 +1,22 @@
+sequenceDiagram
+  autonumber
+  participant S as Scheduler
+  participant M as KVCacheManager
+  participant C as Coordinator
+  participant P as BlockPool
+  Note over S,P: ① 新请求首次调度：查前缀命中
+  S->>M: get_computed_blocks(request)
+  M->>C: find_longest_cache_hit(request.block_hashes, max_len=num_tokens−1)
+  C->>P: get_cached_block(hash) 逐块查，遇到未命中即停
+  P-->>M: 命中块列表 + 命中 token 数
+  Note over S,P: ② 分配本步所需槽位
+  S->>M: allocate_slots(req, num_new_tokens, 命中数, 命中块, lookahead)
+  M->>C: get_num_blocks_to_allocate()
+  M->>P: get_num_free_blocks() 不够则返回 None（触发抢占）
+  M->>C: save_new_computed_blocks()（命中块 touch：ref+1，移出空闲队列）
+  M->>C: allocate_new_blocks() → P.get_new_blocks(n)（队首弹出，必要时驱逐旧哈希）
+  M->>C: cache_blocks()：新写满的块计算哈希并登记
+  Note over S,P: ③ 请求结束或被抢占
+  S->>M: free(request)
+  M->>C: free() → 按逆序把块交给 P.free_blocks()
+  P->>P: ref−1；为 0 的块追加到空闲队列尾部（哈希保留）

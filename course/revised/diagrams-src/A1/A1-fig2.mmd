@@ -1,0 +1,17 @@
+sequenceDiagram
+  autonumber
+  participant CLI as vllm serve
+  participant FE as 前端进程
+  participant EC as EngineCore 进程
+  participant W as Worker（GPU）
+  CLI->>FE: 解析参数 → 构造 VllmConfig（打印非默认参数）
+  FE->>EC: 启动 EngineCore 子进程（握手）
+  EC->>W: 创建 Executor 与 Worker（TP>1 时多个进程）
+  W->>W: init_device：分布式初始化
+  W->>W: load_model：日志 "Model loading took X GiB and Y s"
+  W->>W: profile_run：测激活峰值
+  W-->>EC: 可用显存 → 日志 "GPU KV cache size: N tokens"、"Maximum concurrency ..."
+  W->>W: torch.compile 编译 / 读取缓存
+  W->>W: CUDA Graph 捕获："Graph capturing finished in X secs"
+  EC-->>FE: 就绪
+  FE->>FE: 启动 HTTP 服务："Application startup complete"

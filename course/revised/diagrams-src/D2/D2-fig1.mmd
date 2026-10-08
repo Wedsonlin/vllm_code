@@ -1,0 +1,13 @@
+flowchart TB
+  HF["config.json<br/>quantization_config: {quant_method: gptq, bits: 4, group_size: 128, ...}"] --> MC["ModelConfig 校验<br/>（与 --quantization 对齐）"]
+  MC --> GQC["get_quant_config()<br/>model_loader/weight_utils.py"]
+  GQC --> REG["QUANTIZATION_METHODS 注册表<br/>layers/quantization/__init__.py"]
+  REG --> QC["XxxConfig(QuantizationConfig)<br/>from_config() / get_quant_method()"]
+  QC --> MODEL["模型构造：每个 LinearBase.__init__"]
+  MODEL -->|"quant_config.get_quant_method(layer, prefix)"| QM["XxxLinearMethod(LinearMethodBase)"]
+  QM --> CW["create_weights()：注册 qweight/scales/qzeros 等参数 + weight_loader"]
+  QM --> PW["process_weights_after_loading()：重排/转置/合并 scale"]
+  QM --> AP["apply(layer, x, bias)：调用量化 GEMM kernel"]
+  QC --> SKIP["被忽略的层 → UnquantizedLinearMethod"]
+  QC --> KVM["KV Cache 量化方法（BaseKVCacheMethod）"]
+  QC --> MOE["MoE 量化方法（FusedMoEMethodBase，E3）"]

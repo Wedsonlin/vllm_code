@@ -1,0 +1,18 @@
+flowchart TB
+  subgraph SCHED["EngineCore 进程：只管块号，不碰显存"]
+    SC["Scheduler"] --> KM["KVCacheManager<br/>kv_cache_manager.py"]
+    KM --> CO["KVCacheCoordinator<br/>kv_cache_coordinator.py"]
+    CO --> STM1["FullAttentionManager"]
+    CO --> STM2["SlidingWindowManager / MambaManager ..."]
+    STM1 --> BP["BlockPool<br/>block_pool.py"]
+    STM2 --> BP
+    BP --> FQ["FreeKVCacheBlockQueue<br/>双向链表 LRU"]
+    BP --> HM["cached_block_hash_to_block<br/>哈希 → 块"]
+  end
+  subgraph WORKER["Worker 进程：持有真实显存"]
+    BT["BlockTable / MultiGroupBlockTable<br/>worker/block_table.py"] --> SM["slot_mapping 计算"]
+    KVT["KV Cache 张量<br/>每层 [2, num_blocks, block_size, kv_heads, head_dim]"]
+    SM --> ATT["Attention 后端<br/>写：reshape_and_cache<br/>读：按块表间接寻址"]
+    KVT --> ATT
+  end
+  SC -- "SchedulerOutput 中的 block_ids" --> BT

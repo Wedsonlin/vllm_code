@@ -1,0 +1,14 @@
+flowchart TB
+  DEC["@support_torch_compile 装饰的模型类<br/>（如 LlamaModel）"] --> DYN["Dynamo 抓图（仅一次）<br/>num_tokens 维 mark_dynamic"]
+  DYN --> FX["完整 FX 图"]
+  FX --> VB["VllmBackend.__call__<br/>compilation/backends.py"]
+  VB --> SPLIT["split_graph：在 splitting_ops 处切开<br/>（注意力等自定义算子）"]
+  SPLIT --> SUB1["子图 0：embedding…qkv_proj…RoPE"]
+  SPLIT --> ATT1["注意力算子（不编译，eager 执行）"]
+  SPLIT --> SUB2["子图 1：o_proj + 残差 + RMSNorm + MLP + …qkv_proj"]
+  SUB1 --> PB["PiecewiseBackend：为通用形状编译一次<br/>可选为 compile_sizes 中的具体尺寸各编译一次"]
+  SUB2 --> PB
+  PB --> PASS["PostGradPassManager：vLLM 自定义 pass<br/>融合 / no-op 消除 / 通信融合"]
+  PASS --> IND["Inductor 生成 Triton kernel"]
+  IND --> CG["CUDAGraphWrapper（PIECEWISE）包裹每个子图（C2）"]
+  VB --> CACHE[("编译缓存<br/>~/.cache/vllm/torch_compile_cache/<哈希>/rank_x_y/")]

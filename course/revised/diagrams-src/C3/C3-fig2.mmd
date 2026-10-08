@@ -1,0 +1,20 @@
+sequenceDiagram
+  autonumber
+  participant MR as GPUModelRunner
+  participant WR as 编译包装（support_torch_compile）
+  participant DY as Dynamo
+  participant VB as VllmBackend
+  participant PB as PiecewiseBackend × N
+  participant CG as CUDAGraphWrapper
+  Note over MR,CG: 启动阶段：profile_run / 预热中的第一次调用
+  MR->>WR: model(input_ids, positions)
+  WR->>DY: 首次调用 → 字节码拦截，mark_dynamic(token 维)
+  DY->>VB: 交出完整 FX 图
+  VB->>VB: 查缓存；未命中则 split_graph
+  VB->>PB: 为每个子图编译通用形状（及 compile_sizes）
+  PB-->>WR: 返回编译后的可调用对象（含 CG 包装）
+  Note over MR,CG: 运行阶段：每一步
+  MR->>WR: model(...)
+  WR->>WR: 跳过 Dynamo guard，直接调用编译产物
+  WR->>PB: 子图 0 → 注意力（eager）→ 子图 1 → …
+  PB->>CG: 当前 runtime_mode 为 PIECEWISE 且尺寸已捕获 → replay

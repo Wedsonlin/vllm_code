@@ -1,0 +1,7 @@
+stateDiagram-v2
+  [*] --> INIT
+  INIT --> HELLO_SENT: hello（进程已 spawn，等待 READY）
+  HELLO_SENT --> READY: ack（收到 READY + 响应队列句柄）
+  READY --> CLOSED: close（shutdown）
+  INIT --> CLOSED: close（启动前取消）
+  HELLO_SENT --> CLOSED: close（握手超时/子进程退出）

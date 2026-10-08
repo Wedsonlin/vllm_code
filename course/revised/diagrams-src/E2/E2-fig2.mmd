@@ -1,0 +1,14 @@
+sequenceDiagram
+  autonumber
+  participant EC as EngineCore（batch queue）
+  participant S0 as Stage 0（层 0–39）
+  participant S1 as Stage 1（层 40–79）
+  EC->>S0: 批次 A：execute_model（非阻塞）
+  S0->>S1: send IntermediateTensors{hidden_states, residual}
+  EC->>S0: 批次 B：execute_model（A 仍在 S1 上）
+  S1-->>EC: 批次 A 的采样结果
+  EC->>EC: update_from_output(A)，调度 A 的下一步
+  S0->>S1: 批次 B 的中间张量
+  EC->>S0: 批次 A'（A 的下一步）
+  S1-->>EC: 批次 B 的结果
+  Note over EC,S1: max_concurrent_batches = PP 大小，两个 stage 同时忙碌

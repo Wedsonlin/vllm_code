@@ -1,0 +1,14 @@
+sequenceDiagram
+  autonumber
+  participant D as 校准数据
+  participant M as FP16 模型
+  participant Q as 量化工具（离线）
+  participant CK as 量化 checkpoint
+  participant V as vLLM（D2）
+  D->>M: 前向收集每层输入激活统计
+  M->>Q: 权重 + 激活统计
+  Q->>Q: GPTQ：逐列量化 + Hessian 误差补偿
+  Q->>Q: AWQ：搜索通道缩放 s，再按组量化
+  Q->>Q: SmoothQuant：计算 s，迁移离群到权重，再 W8A8
+  Q->>CK: 写出 qweight / scales / zeros + config.json 的 quantization_config
+  CK->>V: 加载时按 quant_method 选择量化实现与 kernel

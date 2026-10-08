@@ -1,0 +1,16 @@
+sequenceDiagram
+  autonumber
+  participant S as Scheduler
+  participant C as Worker CPU
+  participant G as GPU
+  Note over S,G: V1：每步 CPU 参与大量簿记
+  S->>C: SchedulerOutput（增量）
+  C->>C: 更新 InputBatch、压缩、numpy 计算元数据（~0.5–1.5 ms）
+  C->>G: 拷贝 input_ids / positions / slot_mapping 等
+  G->>G: 前向、采样
+  G->>C: 同步拷回采样结果，写回 CPU 状态
+  Note over S,G: V2：CPU 只传最少信息【待核】
+  S->>C: SchedulerOutput（增量）
+  C->>G: 拷贝本步 token 数与槽位索引（几 KB）
+  G->>G: prepare_inputs kernel → 前向 → 采样 → 写回 GPU 状态
+  G-->>C: 异步拷回采样结果（不阻塞下一步提交）

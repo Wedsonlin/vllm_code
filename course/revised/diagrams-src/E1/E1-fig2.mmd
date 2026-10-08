@@ -1,0 +1,15 @@
+sequenceDiagram
+  autonumber
+  participant C as Coordinator
+  participant E0 as 引擎0（有请求）
+  participant E1 as 引擎1（空闲）
+  Note over E0,E1: 稠密模型：E1 空闲就停下，互不影响
+  Note over E0,E1: MoE 模型：MoE 层 all-to-all 需要所有 rank 参与
+  E0->>C: 有新请求，开始运行（wave = 5）
+  C->>E1: 广播 START_DP_WAVE(5)
+  loop 直到全局没有未完成请求
+    E0->>E0: 正常 step（真实 batch）
+    E1->>E1: execute_dummy_batch()（1 个假 token，参与集合通信）
+    E0-->>E1: 每隔若干步 all-reduce "全局是否还有未完成请求"
+  end
+  E0->>C: 全部完成，wave 结束，进入空闲

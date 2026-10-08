@@ -1,0 +1,15 @@
+sequenceDiagram
+  autonumber
+  participant G0 as GPU0（专家 0–7）
+  participant G1 as GPU1（专家 8–15）
+  participant Gn as GPU31（专家 248–255）
+  Note over G0,Gn: 各卡已完成注意力（DP），各自 128 个 token
+  G0->>G0: 路由：topk_ids，按目标卡分桶，计算发送计数
+  G0->>G1: 交换计数（让对方预分配接收缓冲）
+  G0->>G1: dispatch：发往专家 8–15 的 token（FP8）
+  G0->>Gn: dispatch：发往专家 248–255 的 token
+  G1->>G0: 其他卡发往专家 0–7 的 token
+  G0->>G0: 本地专家分组 GEMM（只算收到的 token）
+  G0->>G1: combine：把专家输出发回 token 的源卡（bf16）
+  G1->>G0: 其他卡把本卡 token 的专家输出发回
+  G0->>G0: 按 topk_weights 加权求和 + 共享专家输出

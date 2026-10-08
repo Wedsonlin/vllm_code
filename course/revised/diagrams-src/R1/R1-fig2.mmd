@@ -1,0 +1,15 @@
+sequenceDiagram
+  autonumber
+  participant H as 当前 token 隐藏状态 h
+  participant P as 投影层
+  participant C as KV Cache（每 token 576 维）
+  participant A as MLA decode kernel
+  participant O as 输出投影
+  H->>P: c = W_DKV·h（512 维潜向量）；k_rope = RoPE(W_KR·h)（64 维）
+  P->>C: 写入 [c, k_rope]（仅 576 维，所有头共享）
+  H->>P: q = W_Q·h → 每头 q_nope（128 维）与 q_rope（64 维）
+  P->>P: 吸收：q̃ = W_UKᵀ·q_nope（每头映射到 512 维潜空间）
+  P->>A: 每头查询 [q̃, q_rope]（576 维）
+  C->>A: 读取历史全部 [c, k_rope]
+  A->>A: 分数 = [q̃,q_rope]·[c,k_rope]；softmax；加权求和得到潜空间输出 õ（512 维/头）
+  A->>O: o = W_UV·õ（可进一步与输出投影合并）

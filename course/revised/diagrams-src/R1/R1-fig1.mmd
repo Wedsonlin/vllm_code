@@ -1,0 +1,9 @@
+flowchart TD
+  MHA["MHA：每个 Q 头一组独立 KV"] -->|"减小每 token KV"| MQA["MQA：所有 Q 头共享 1 组 KV"]
+  MHA --> GQA["GQA：Q 头分 G 组，每组共享 KV"]
+  GQA --> MLA["MLA：KV 联合压缩为低秩潜向量 + 解耦 RoPE"]
+  MHA -->|"减少 token 数"| SW["滑动窗口：只保留最近 W 个"]
+  SW --> HY["Hybrid：全局层与窗口层/线性层交替"]
+  MHA --> LIN["线性注意力 / SSM：固定大小状态"]
+  LIN --> HY
+  MHA --> SP["稀疏注意力（如 DSA）：索引器选 top-k token"]

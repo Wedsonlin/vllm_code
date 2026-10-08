@@ -1,0 +1,18 @@
+sequenceDiagram
+  autonumber
+  participant M as FusedMoE 前向（每层）
+  participant S as EplbState
+  participant A as rebalance 算法
+  participant X as 权重重排（P2P）
+  loop 每一步前向
+    M->>M: select_experts：逻辑 id → 物理副本 id（按副本均摊）
+    M->>S: 累加各物理专家本步处理的 token 数（expert_load_pass）
+  end
+  S->>S: 写入滑动窗口（window_size 步）
+  alt 达到 step_interval
+    S->>S: 跨所有 EP rank all-reduce 汇总窗口内各逻辑专家负载
+    S->>A: rebalance_experts(负载, 副本总数, 组数, 节点数, GPU 数)
+    A-->>S: 新的 physical_to_logical_map
+    S->>X: rearrange_expert_weights_inplace：按新旧映射差异在卡间搬运专家权重
+    X-->>S: 完成后原子切换映射表
+  end

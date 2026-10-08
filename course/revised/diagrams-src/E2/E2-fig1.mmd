@@ -1,0 +1,11 @@
+flowchart LR
+  X["输入 x（每卡完整副本）<br/>[T, 4096]"] --> QKV["qkv_proj 列并行<br/>每卡 [T, 1536]（TP=4）"]
+  QKV --> ATT["注意力：每卡 8 个 Q 头 + 2 个 KV 头<br/>各卡独立计算"]
+  ATT --> O["o_proj 行并行<br/>每卡输出部分和 [T, 4096]"]
+  O --> AR1(("all-reduce ①"))
+  AR1 --> N2["残差 + RMSNorm（每卡完整）"]
+  N2 --> GU["gate_up 列并行<br/>每卡 [T, 7168]"]
+  GU --> ACT["SiLU × 乘（各卡独立）<br/>[T, 3584]"]
+  ACT --> DN["down_proj 行并行<br/>部分和 [T, 4096]"]
+  DN --> AR2(("all-reduce ②"))
+  AR2 --> Y["输出（每卡完整副本）"]

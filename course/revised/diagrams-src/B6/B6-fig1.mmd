@@ -1,0 +1,16 @@
+flowchart TB
+  L1["① 入口层<br/>LLM（离线） / api_server + OpenAIServing*（在线）"]
+  L2["② 前端引擎层<br/>LLMEngine / AsyncLLM + Processor + OutputProcessor"]
+  L3["③ 引擎客户端层<br/>EngineCoreClient：Inproc / SyncMP / AsyncMP / DP"]
+  L4["④ 引擎核心层<br/>EngineCore(Proc)：Scheduler + KVCacheManager + StructuredOutputManager"]
+  L5["⑤ 执行器层<br/>Executor：UniProc / Multiproc / Ray"]
+  L6["⑥ Worker 层<br/>Worker：设备、分布式组、显存 profile"]
+  L7["⑦ 模型执行层<br/>GPUModelRunner + nn.Module + Attention 后端 + Sampler + kernels"]
+  L1 --> L2 --> L3 --> L4 --> L5 --> L6 --> L7
+  P1["前端进程"] -.-> L1
+  P1 -.-> L2
+  P1 -.-> L3
+  P2["EngineCore 进程（纯 CPU）"] -.-> L4
+  P2 -.-> L5
+  P3["Worker 进程 × world_size（各占一卡）"] -.-> L6
+  P3 -.-> L7

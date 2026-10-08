@@ -1,0 +1,19 @@
+sequenceDiagram
+  autonumber
+  participant W as Worker.compile_or_warm_up_model
+  participant MR as GPUModelRunner
+  participant D as CudagraphDispatcher
+  participant G as CUDAGraphWrapper
+  W->>MR: capture_model()
+  MR->>D: initialize_cudagraph_keys(mode, uniform_decode_query_len)
+  loop 对每个捕获尺寸（从大到小）
+    MR->>MR: _dummy_run(n, cudagraph_runtime_mode=PIECEWISE 或 FULL)
+    MR->>G: 首次以该 BatchDescriptor 调用 → torch.cuda.graph(...) 捕获
+    G->>G: 保存 CUDAGraph 与输出张量（弱引用以省显存）
+  end
+  Note over W,G: 运行时每一步
+  MR->>MR: num_input_tokens = pad(实际 token 数)
+  MR->>D: dispatch(BatchDescriptor(num_tokens, uniform_decode))
+  D-->>MR: (runtime_mode, 规范化后的 descriptor)
+  MR->>G: set_forward_context(..., cudagraph_runtime_mode, batch_descriptor) 后调用模型
+  G->>G: 模式匹配且已捕获 → graph.replay()；否则直接调用原函数

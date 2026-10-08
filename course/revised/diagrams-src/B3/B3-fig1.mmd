@@ -1,0 +1,19 @@
+flowchart TB
+  subgraph EC["EngineCore"]
+    S["Scheduler<br/>vllm/v1/core/sched/scheduler.py"]
+    W[("waiting 队列<br/>FCFS 或 priority")]
+    R[("running 列表")]
+    KVM["KVCacheManager（B4）"]
+    EM["EncoderCacheManager<br/>多模态编码预算"]
+    SO["StructuredOutputManager<br/>语法约束 bitmask"]
+    CON["KVConnector（F3，可选）"]
+  end
+  W --> S
+  R --> S
+  S -->|"get_computed_blocks / allocate_slots / free"| KVM
+  S --> EM
+  S --> SO
+  S --> CON
+  S -->|"SchedulerOutput"| EX["Executor → GPUModelRunner"]
+  EX -->|"ModelRunnerOutput"| U["update_from_output()"]
+  U -->|"EngineCoreOutputs"| FE["前端 OutputProcessor"]
