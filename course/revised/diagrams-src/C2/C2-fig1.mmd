@@ -1,0 +1,12 @@
+flowchart TB
+  CC["CompilationConfig<br/>cudagraph_mode / cudagraph_capture_sizes<br/>max_cudagraph_capture_size"] --> MR["GPUModelRunner"]
+  MR --> CAP["capture_model()<br/>启动时按尺寸从大到小捕获"]
+  MR --> DIS["CudagraphDispatcher<br/>v1/cudagraph_dispatcher.py"]
+  CAP --> DR["_dummy_run(num_tokens, mode, uniform_decode)"]
+  DR --> WRAP_F["FULL：整个模型外包一层 CUDAGraphWrapper"]
+  DR --> WRAP_P["PIECEWISE：每个编译子图各包一层 CUDAGraphWrapper<br/>（compilation/cuda_graph.py）"]
+  DIS -->|"运行时：BatchDescriptor(num_tokens, uniform_decode)"| SEL{"选择模式"}
+  SEL -->|"有对应 FULL 图且后端支持"| WRAP_F
+  SEL -->|"否则有分段图"| WRAP_P
+  SEL -->|"超过最大捕获尺寸 / 被禁用"| EAGER["eager 执行"]
+  AB["注意力后端 MetadataBuilder.cudagraph_support<br/>ALWAYS / UNIFORM_BATCH / UNIFORM_SINGLE_TOKEN_DECODE / NEVER"] --> SEL

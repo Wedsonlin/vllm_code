@@ -1,0 +1,8 @@
+stateDiagram-v2
+  [*] --> IDLE
+  IDLE --> ALLOCATED: allocate（D 调度器为远端 token 分配本地块）
+  ALLOCATED --> TRANSFERRING: start_transfer（Worker start_load_kv 发起 READ）
+  TRANSFERRING --> READY: complete（get_finished 报告 done_recving）
+  READY --> RELEASED: release（请求完成，块正常释放）
+  ALLOCATED --> RELEASED: release（传输开始前取消）
+  TRANSFERRING --> RELEASED: abort（传输失败/超时/客户端断开）

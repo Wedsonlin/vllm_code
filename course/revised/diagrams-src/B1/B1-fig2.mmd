@@ -1,0 +1,31 @@
+sequenceDiagram
+  autonumber
+  participant C as 客户端
+  participant API as OpenAIServingChat
+  participant A as AsyncLLM
+  participant P as InputProcessor
+  participant OP as OutputProcessor
+  participant CL as AsyncMPClient
+  participant IO as EngineCore IO 线程
+  participant BL as EngineCore 忙循环
+  C->>API: POST /v1/chat/completions stream=true
+  API->>A: generate(prompt, sampling_params, request_id)
+  A->>P: process_inputs() → EngineCoreRequest
+  A->>OP: add_request()（建 RequestState + 收集器）
+  A->>CL: add_request_async(req)
+  CL->>IO: send_multipart([ADD, msgpack(req), 可选张量帧])
+  IO->>BL: input_queue.put((ADD, req))
+  loop 每个 engine step
+    BL->>BL: scheduler.schedule()
+    BL->>BL: executor.execute_model() → sample_tokens()
+    BL->>BL: scheduler.update_from_output()
+    BL->>IO: output_queue.put(EngineCoreOutputs)
+    IO-->>CL: PUSH 多帧
+    CL-->>A: output_handler: get_output_async()
+    A->>OP: process_outputs(outputs)
+    OP-->>A: collector.put(RequestOutput)
+    A-->>API: async for 产出增量
+    API-->>C: SSE: data: {"delta": ...}
+  end
+  OP-->>API: finished=True
+  API-->>C: data: [DONE]

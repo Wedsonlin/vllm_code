@@ -1,0 +1,8 @@
+flowchart LR
+  H["本卡 token 的隐藏状态<br/>[T, hidden]"] --> R["路由器 gate：logits [T, E]"]
+  R --> TK["select_experts：top-k（或分组 top-k）<br/>topk_ids [T, k]、topk_weights [T, k]"]
+  TK --> D["Prepare / Dispatch<br/>按专家所在卡发送 token（all-to-all）<br/>可在发送前量化为 FP8"]
+  D --> EX["本卡专家计算<br/>分组 GEMM：gate_up → SiLU×乘 → down"]
+  EX --> C["Finalize / Combine<br/>结果发回原卡（all-to-all）<br/>按 topk_weights 加权求和"]
+  C --> SH["+ 共享专家输出（本地计算，可与通信重叠）"]
+  SH --> OUT["MoE 层输出 [T, hidden]"]

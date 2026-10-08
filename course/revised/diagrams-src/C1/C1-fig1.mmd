@@ -1,0 +1,12 @@
+flowchart LR
+  subgraph PROG["一个程序实例：负责（请求 r，KV 头 h）"]
+    Q["加载 q[r, h 组内的 Q 头]<br/>（寄存器中常驻）"]
+    LOOP["for j in 本请求的逻辑块:"]
+    BT["phys = block_table[r, j]"]
+    LD["按 phys 加载 K/V 块<br/>[block_size, head_dim]"]
+    SC["s = q·Kᵀ × scale；在线 softmax 更新 m, l"]
+    ACC["acc = acc × 修正 + p·V"]
+    Q --> LOOP --> BT --> LD --> SC --> ACC --> LOOP
+  end
+  OUT["输出 acc / l"]
+  ACC --> OUT

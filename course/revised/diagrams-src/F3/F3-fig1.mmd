@@ -1,0 +1,12 @@
+flowchart LR
+  C["客户端"] --> PX["Proxy / Router<br/>（示例 toy_proxy_server 或生产路由器）"]
+  PX -->|"① max_tokens=1<br/>kv_transfer_params: do_remote_decode"| P["Prefill 实例<br/>vllm serve --kv-transfer-config<br/>kv_connector=NixlConnector"]
+  P -->|"② 返回 kv_transfer_params<br/>remote_engine_id / remote_block_ids / host / port"| PX
+  PX -->|"③ 原请求 + kv_transfer_params<br/>do_remote_prefill"| D["Decode 实例"]
+  D <-->|"侧信道握手（ZMQ）：交换 NIXL 元数据<br/>VLLM_NIXL_SIDE_CHANNEL_PORT"| P
+  D -->|"④ NIXL READ：D 主动从 P 的显存拉取 KV 块（RDMA / NVLink）"| P
+  D -->|"⑤ 通知 P：传输完成，可释放块"| P
+  D -->|"⑥ 流式 decode 输出"| PX --> C
+  subgraph PI["每个实例内部（V1）"]
+    SCH["Scheduler + KVConnector（调度侧）"] --> WRK["Worker + KVConnector（Worker 侧）<br/>持有 NIXL agent、注册 KV 显存"]
+  end

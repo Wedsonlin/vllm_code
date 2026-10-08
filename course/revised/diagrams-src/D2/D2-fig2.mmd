@@ -1,0 +1,13 @@
+sequenceDiagram
+  autonumber
+  participant L as RowParallelLinear(down_proj)
+  participant M as Fp8LinearMethod.apply
+  participant Q as 动态量化 kernel
+  participant G as cutlass_scaled_mm
+  participant AR as TP all-reduce
+  L->>M: forward(x: [num_tokens, 3584] bf16)
+  M->>Q: per-token 动态量化 → x_q fp8, x_scale [num_tokens,1]
+  M->>G: x_q @ W_qᵀ，累加 fp32，乘 x_scale × w_scale，输出 bf16
+  G-->>L: 部分和 [num_tokens, 4096]
+  L->>AR: all-reduce（行并行）
+  Note over Q,G: 开启编译时，"RMSNorm/SiLU×乘 + 动态量化"可被融合 pass 合并（C3）

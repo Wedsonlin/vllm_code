@@ -1,0 +1,20 @@
+sequenceDiagram
+  autonumber
+  participant SEL as get_attn_backend
+  participant MR as GPUModelRunner
+  participant B as AttentionBackend
+  participant MB as AttentionMetadataBuilder
+  participant L as Attention 层
+  participant I as AttentionImpl
+  SEL->>SEL: 平台 + 模型（head_size、dtype、kv_cache_dtype、block_size、是否MLA）+ 用户指定
+  SEL-->>MR: 后端类（如 FlashAttentionBackend / TritonAttentionBackend）
+  MR->>B: get_kv_cache_shape(num_blocks, block_size, kv_heads, head_size)
+  MR->>B: get_builder_cls() → 构造 MB
+  loop 每一步
+    MR->>MB: build(common_prefix_len, CommonAttentionMetadata)
+    MB-->>MR: 后端专用 attn_metadata
+    MR->>L: model(...) 前向（经 forward context）
+    L->>I: do_kv_cache_update（经 unified_kv_cache_update 写入新 K/V）
+    L->>I: forward(layer, q, k, v, kv_cache, attn_metadata, output)
+    I->>I: 调用 kernel 计算注意力
+  end

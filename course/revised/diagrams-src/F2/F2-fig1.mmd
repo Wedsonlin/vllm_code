@@ -1,0 +1,8 @@
+flowchart TB
+  A["服务级：vllm bench serve / Prometheus<br/>TTFT、ITL、吞吐、队列长度、KV 使用率、抢占数"] --> B{"现象归类"}
+  B -->|"waiting 长、KV 满、抢占多"| C1["容量问题：B3/B4<br/>调 max_num_seqs、显存、TP/DP、fp8 KV"]
+  B -->|"GPU 利用率低、ITL 不稳"| C2["CPU/调度问题：B1/B6<br/>前端饱和、调度开销、图未命中"]
+  B -->|"GPU 忙但慢于理论"| C3["kernel/通信问题：C1/E2<br/>trace 定位热点 kernel、all-reduce 等待"]
+  C2 --> D["步级时间线：PyTorch Profiler / Nsight Systems"]
+  C3 --> D
+  D --> E["kernel 级：Nsight Compute<br/>带宽/算力利用率、占用率"]

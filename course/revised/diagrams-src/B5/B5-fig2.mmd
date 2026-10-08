@@ -1,0 +1,16 @@
+sequenceDiagram
+  autonumber
+  participant L as DefaultModelLoader
+  participant IT as safetensors 迭代器
+  participant M as LlamaModel.load_weights
+  participant P as QKVParallelLinear.weight_loader
+  L->>IT: get_all_weights()
+  loop 每个 checkpoint 张量（流式，CPU mmap）
+    IT-->>M: ("layers.0.self_attn.k_proj.weight", [1024, 4096])
+    M->>M: 命中 stacked 映射 → 改名 qkv_proj，shard_id="k"
+    M->>P: weight_loader(param[1536,4096], w, "k")
+    P->>P: 目标偏移 = 8 头 × 128 = 1024，长度 256
+    P->>P: 源切片 = w.narrow(0, tp_rank×256, 256)
+    P->>P: param.data[1024:1280].copy_(源切片)（H2D）
+  end
+  L->>L: process_weights_after_loading（量化重排等）

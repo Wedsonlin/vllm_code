@@ -1,0 +1,15 @@
+flowchart TB
+  EC["EngineCore"] --> EXA["Executor 抽象<br/>vllm/v1/executor/abstract.py"]
+  EXA --> U["UniProcExecutor<br/>单卡，本进程"]
+  EXA --> M["MultiprocExecutor<br/>单机多卡，多进程"]
+  EXA --> R["RayDistributedExecutor<br/>多机"]
+  EXA --> X["ExecutorWithExternalLauncher<br/>torchrun 等外部启动"]
+  M -->|"rpc_broadcast_mq<br/>共享内存广播"| W0["WorkerProc rank0"]
+  M --> W1["WorkerProc rank1"]
+  M --> Wn["WorkerProc rank N-1"]
+  W0 -->|"worker_response_mq"| M
+  subgraph WP["每个 WorkerProc 进程内"]
+    WW["WorkerWrapperBase"] --> GW["Worker（gpu_worker.py）"]
+    GW --> MR["GPUModelRunner"]
+    MR --> MD["nn.Module + Attention 后端"]
+  end

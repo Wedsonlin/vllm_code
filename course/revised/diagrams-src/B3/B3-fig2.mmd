@@ -1,0 +1,28 @@
+sequenceDiagram
+  autonumber
+  participant S as Scheduler.schedule
+  participant RQ as running
+  participant K as KVCacheManager
+  participant WQ as waiting
+  S->>S: token_budget = max_num_scheduled_tokens
+  loop 遍历 running（按顺序）
+    S->>S: num_new = num_tokens_with_spec − num_computed_tokens
+    S->>S: num_new = min(num_new, long_prefill阈值, token_budget)
+    S->>K: allocate_slots(req, num_new, num_lookahead)
+    alt 返回 None（块不够）
+      S->>RQ: 弹出最低优先级请求（FCFS 为队尾）
+      S->>K: free(被抢占者)；状态→PREEMPTED，num_computed_tokens=0
+      S->>WQ: 放回 waiting 队首
+    else 成功
+      S->>S: token_budget −= num_new
+    end
+  end
+  alt 本步未发生抢占
+    loop 遍历 waiting（直到预算或 max_num_seqs 用完）
+      S->>K: get_computed_blocks(req) 前缀命中
+      S->>S: num_new = num_tokens − 命中 token 数（chunked 截断）
+      S->>K: allocate_slots(req, num_new, 命中块)
+      S->>RQ: 移入 running
+    end
+  end
+  S-->>S: 组装 SchedulerOutput

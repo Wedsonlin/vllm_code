@@ -1,0 +1,27 @@
+sequenceDiagram
+  autonumber
+  participant U as 用户脚本
+  participant LLM as LLM
+  participant E as LLMEngine
+  participant C as SyncMPClient
+  participant K as EngineCore
+  participant S as Scheduler
+  participant X as Executor
+  participant R as GPUModelRunner
+  U->>LLM: generate(prompts, SamplingParams)
+  LLM->>E: add_request() × N（InputProcessor 转为 EngineCoreRequest）
+  loop _run_engine：直到全部完成
+    LLM->>E: step()
+    E->>C: get_output()
+    C->>K: （另一进程）run_busy_loop → step_fn()（step 或 step_with_batch_queue）
+    K->>S: schedule() → SchedulerOutput
+    K->>X: execute_model(SchedulerOutput)
+    X->>R: Worker.execute_model → GPUModelRunner.execute_model
+    K->>X: sample_tokens(grammar_output)
+    X->>R: GPUModelRunner.sample_tokens
+    R-->>X: ModelRunnerOutput
+    K->>S: update_from_output() → EngineCoreOutputs
+    C-->>E: EngineCoreOutputs
+    E->>E: OutputProcessor.process_outputs（detokenize、判停）
+  end
+  LLM-->>U: list[RequestOutput]

@@ -1,0 +1,19 @@
+flowchart LR
+  subgraph FE["前端进程（API Server）"]
+    H["FastAPI 路由<br/>OpenAIServingChat / Completion"] --> A["AsyncLLM"]
+    A --> IP["InputProcessor<br/>tokenize + 校验"]
+    A --> OH["output_handler 后台 Task"]
+    OH --> OP["OutputProcessor<br/>增量 detokenize / stop 判断"]
+    OP --> Q["每请求 RequestOutputCollector"]
+    A --> CC["AsyncMPClient"]
+  end
+  subgraph EC["EngineCore 进程（EngineCoreProc）"]
+    IT["输入 IO 线程<br/>process_input_sockets"] --> IQ[("input_queue")]
+    IQ --> BL["主线程 run_busy_loop"]
+    BL --> S["Scheduler"]
+    BL --> EX["Executor → Workers(GPU)"]
+    BL --> OQ[("output_queue")]
+    OQ --> OT["输出 IO 线程<br/>process_output_sockets"]
+  end
+  CC -- "ZMQ ROUTER → DEALER<br/>ADD / ABORT / UTILITY" --> IT
+  OT -- "ZMQ PUSH → PULL<br/>EngineCoreOutputs" --> CC

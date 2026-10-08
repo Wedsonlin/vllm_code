@@ -1,0 +1,17 @@
+sequenceDiagram
+  autonumber
+  participant S as Scheduler
+  participant R as GPUModelRunner
+  participant T as 目标模型
+  participant J as RejectionSampler
+  participant D as Drafter（如 EAGLE）
+  S->>R: 请求 r：上一步留下的草稿 [d1,d2,d3]，本步调度 4 个 token
+  R->>T: 前向位置 [x_last, d1, d2, d3]
+  T-->>R: 4 组 logits（目标分布 p1..p4）
+  R->>J: forward(草稿 ids, 草稿概率 q, 目标 logits, bonus logits)
+  J->>J: 逐位置：接受概率 min(1, p/q)；首次拒绝 → 从 norm(max(0,p−q)) 采样并停止
+  J-->>R: 例如接受 d1、d2，拒绝 d3 → 输出 [d1, d2, y3]
+  R->>D: propose(基于新 token 与目标模型隐藏状态) → 新草稿 [e1,e2,e3]
+  R-->>S: ModelRunnerOutput：sampled_token_ids=[d1,d2,y3]
+  Note over S,R: 新草稿 [e1,e2,e3] 不在输出中：同步调度时经 take_draft_token_ids() 交回；异步调度时留在 Worker
+  S->>S: num_computed_tokens 回退被拒绝的位置；追加 3 个输出 token

@@ -1,0 +1,14 @@
+flowchart LR
+  subgraph EC["EngineCore"]
+    SCH["Scheduler<br/>num_tokens_with_spec = 已有 + 草稿 k<br/>allocate_slots(..., num_lookahead_tokens)"]
+  end
+  subgraph MR["GPUModelRunner"]
+    PREP["_prepare_inputs：每请求 1+k 个位置<br/>logits_indices 含全部草稿位置"]
+    FWD["目标模型前向"]
+    RS["RejectionSampler<br/>v1/sample/rejection_sampler.py"]
+    DR["Drafter.propose()<br/>NgramProposer / EagleProposer / MTP / 草稿模型"]
+  end
+  SCH -->|"scheduled_spec_decode_tokens"| PREP --> FWD --> RS
+  RS -->|"每请求接受的 token（可变长）"| DR
+  DR -->|"下一步草稿：同步调度经 take_draft_token_ids 交回；<br/>异步调度时留在 Worker，调度器仅预留占位"| SCH
+  RS -->|"ModelRunnerOutput：sampled_token_ids"| SCH

@@ -1,0 +1,22 @@
+sequenceDiagram
+  autonumber
+  participant U as 运维脚本
+  participant API as API Server
+  participant AL as AsyncLLM
+  participant EC as EngineCore
+  participant EX as Executor
+  participant W0 as Worker rank0
+  participant W1 as Worker rank1
+  U->>API: POST /start_profile
+  API->>AL: start_profile()
+  AL->>EC: UTILITY 请求（经 ZMQ，B1）
+  EC->>EX: profile(is_start=True)
+  EX->>W0: collective_rpc("profile", True)
+  EX->>W1: collective_rpc("profile", True)
+  W0->>W0: torch.profiler.start()
+  W1->>W1: torch.profiler.start()
+  Note over U,W1: 压测流量运行若干秒
+  U->>API: POST /stop_profile
+  API->>EC: 同样路径
+  EX->>W0: profile(False) → 导出 trace 到各自文件
+  EX->>W1: profile(False) → 导出 trace

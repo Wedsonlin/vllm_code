@@ -1,0 +1,23 @@
+sequenceDiagram
+  autonumber
+  participant EC as EngineCore.__init__
+  participant EX as MultiprocExecutor
+  participant WP as WorkerProc(rank r)
+  participant W as Worker
+  EC->>EX: executor_class(vllm_config)
+  EX->>EX: _init_executor(): 建 rpc_broadcast_mq（共享内存环形缓冲）
+  loop 每个 rank
+    EX->>WP: WorkerProc.make_worker_process()（spawn 进程 + ready_pipe）
+  end
+  WP->>W: WorkerWrapperBase.init_worker() → Worker(...)
+  WP->>W: init_device()（set_device_index、init_distributed_environment、建 TP/PP 组）
+  WP->>W: load_model()（见 B5）
+  WP-->>EX: ready_pipe.send({status: READY, 响应队列句柄})
+  EX->>EX: wait_for_ready()：收齐 N 个 READY，连上各 worker_response_mq
+  WP->>WP: worker_busy_loop()：阻塞在 rpc_broadcast_mq.dequeue()
+  EC->>EX: _initialize_kv_caches()
+  EX->>WP: collective_rpc("get_kv_cache_spec")
+  EX->>WP: collective_rpc("determine_available_memory")
+  WP->>W: model_runner.profile_run()
+  EX->>WP: collective_rpc("initialize_from_config", kv_cache_configs)
+  EX->>WP: collective_rpc("compile_or_warm_up_model")（编译 + CUDA Graph 捕获）

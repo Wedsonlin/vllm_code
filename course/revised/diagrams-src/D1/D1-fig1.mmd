@@ -1,0 +1,5 @@
+flowchart LR
+  T["per-tensor<br/>整个张量 1 个 scale"] --> C["per-channel<br/>每个输出通道 1 个 scale"]
+  C --> G["per-group<br/>每 g 个输入元素 1 个 scale（g=128 常见）"]
+  G --> B["block-wise<br/>二维块，如 128×128（DeepSeek 风格 FP8）"]
+  A["激活侧：per-tensor（静态） / per-token（动态）"]

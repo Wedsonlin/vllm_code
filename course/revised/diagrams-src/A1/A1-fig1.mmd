@@ -1,0 +1,10 @@
+flowchart LR
+  subgraph OFF["离线：LLM 类"]
+    U1["Python 脚本"] --> L["LLM(model=...)"] --> LE["LLMEngine（同步拉取）"]
+  end
+  subgraph ON["在线：vllm serve"]
+    U2["HTTP 客户端 / OpenAI SDK"] --> API["api_server（FastAPI）"] --> AL["AsyncLLM（异步）"]
+  end
+  LE --> CORE["EngineCore 进程<br/>Scheduler + KVCacheManager"]
+  AL --> CORE
+  CORE --> EXE["Executor → Worker(GPU) → GPUModelRunner"]
