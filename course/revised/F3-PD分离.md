@@ -2,7 +2,7 @@
 
 > **版本**：vLLM 0.30.x（V1 引擎）｜**模块**：F-高级特性与性能｜**对应原课**：第 19 课（以"新精修版"为准；旧版以及 0.17～0.22 时期的历史实现仅作归档，不属于主线内容）
 > **导航**：上一课：[F2-性能分析] → **本课 F3** → 下一课：[F4-ModelRunnerV2]
-> **练习**：`exercises/F3_kv_state_machine`｜**源码标注**：KV Connector 是 vLLM 中演进最快的子系统之一，标有【待核】之处必须以 0.30.x tag 的源码为准。
+> **练习**：`exercises/F3_kv_state_machine`｜**源码标注**：KV Connector 是 vLLM 中演进最快的子系统之一，文中涉及的源码路径、符号与参数已对照 vLLM v0.30.0 tag 的源码核实，后续版本可能继续调整。
 
 ## 0. 先修要求与学习目标
 
@@ -44,7 +44,7 @@ prefill 是计算受限的大块计算，一条 8 000 token 的 prompt 在 8B �
 说明如下：
 
 - **由 D 侧"拉取"而非由 P 侧"推送"**：D 在分配好本地块之后才能确定目标地址，因此由 D 发起 READ 最为合理；P 只需"保持相关块不被释放"，直至 D 通知传输完成。
-- **最后一个 token 的处理**：与前缀缓存相同，D 至少须对最后一个位置执行一次前向计算才能得到 logits，因此通常仅从远端加载至 prompt 的最后一个完整块或 `len−1` 的位置，剩余部分在 D 本地计算。【待核：0.30.x 中 NixlConnector 对部分块的处理细节】
+- **最后一个 token 的处理**：与前缀缓存相同，D 至少须对最后一个位置执行一次前向计算才能得到 logits，在 v0.30.0 中，NixlConnector（pull 模式）在 D 侧向远端请求整个 prompt 的 KV（含 Mamba 层的模型为前 `len−1` 个 token）；传输完成后，若已计算的 token 数等于请求总长度，调度器将其回退为 `len−1`，使最后一个位置在 D 本地重新计算。
 - **P 的首个 token**：proxy 通常丢弃 P 返回的那个 token，由 D 重新生成第一个输出 token，以保证采样的一致性。
 
 ## 4. KVConnector 接口：调度侧与 Worker 侧
@@ -57,7 +57,7 @@ prefill 是计算受限的大块计算，一条 8 000 token 的 prompt 在 8B �
 2. `update_state_after_alloc(request, blocks, num_external_tokens)`：在本地块分配成功后调用，connector 据此记录"这些本地块需以远端数据填充"。
 3. `build_connector_meta(scheduler_output) -> KVConnectorMetadata`：在每步调度结束时调用，将本步需要加载/保存的请求与块信息打包，随 `SchedulerOutput` 发送给 Worker。
 4. `request_finished(request, block_ids) -> (bool, dict | None)`：在请求结束时调用。P 侧返回 `True` 表示"延迟释放这些块"，并返回需回传给 proxy 的 `kv_transfer_params`。
-5. `update_connector_output(connector_output)`：处理 Worker 回报的完成情况。【待核：方法名】
+5. `update_connector_output(connector_output)`：处理 Worker 回报的完成情况。
 
 **Worker 侧方法（Worker 进程，持有 GPU）**：
 
@@ -67,13 +67,13 @@ prefill 是计算受限的大块计算，一条 8 000 token 的 prompt 在 8B �
 4. `wait_for_save()`：在前向计算结束时确保保存已完成。
 5. `get_finished(finished_req_ids) -> (done_sending, done_recving)`：返回传输已完成的请求 id 集合，随 `ModelRunnerOutput` 上报给调度器。
 
-**生态中的 connector**（位于 `kv_connector/v1/` 下）：`NixlConnector`（PD 分离的主要实现，基于 NVIDIA NIXL，支持 UCX/RDMA/NVLink）、`P2pNcclConnector`、`LMCacheConnectorV1`（对接 LMCache，常用于 KV 卸载与跨实例共享）、`OffloadingConnector`（CPU 卸载）、`SharedStorageConnector`（用于教学/调试，将 KV 写入磁盘文件）、`MultiConnector`（组合多个 connector）。注册表位于 `kv_connector/factory.py`。【待核：0.30.x 中的完整列表】
+**生态中的 connector**（位于 `kv_connector/v1/` 下）：`NixlConnector`（PD 分离的主要实现，基于 NVIDIA NIXL，支持 UCX/RDMA/NVLink；实现位于 `v1/nixl/` 子包，另有 `NixlPullConnector`、`NixlPushConnector` 两个变体）、`MooncakeConnector` 与 `MooncakeStoreConnector`、`MoRIIOConnector`、`LMCacheConnectorV1` 与 `LMCacheMPConnector`（对接 LMCache，常用于 KV 卸载与跨实例共享）、`OffloadingConnector` 与 `SimpleCPUOffloadConnector`（CPU 卸载）、`FlexKVConnectorV1`、`HF3FSKVConnector`、`HiSparseConnector`、`ExampleConnector`（用于教学/调试，将 KV 写入磁盘文件，功能对应旧版本的 `SharedStorageConnector`）、`ExampleHiddenStatesConnector`、`DecodeBenchConnector`、`MultiConnector`（组合多个 connector）。注册表位于 `kv_connector/factory.py`。旧版本中的 `P2pNcclConnector` 在 v0.30.0 中已不再提供。
 
 ## 5. NixlConnector 的关键机制
 
 1. **元数据握手**：D 首次需要从某个 P 引擎拉取数据时，通过 ZMQ 侧信道（端口由 `VLLM_NIXL_SIDE_CHANNEL_PORT` 指定，按 rank 偏移）向 P 请求 `NixlAgentMetadata`，内容包括：引擎 id、NIXL agent 元数据、每层 KV 的基地址、块数、块字节长度、TP 大小、KV 布局等。握手结果会被缓存，后续请求不再重复握手。
 2. **描述符**：双方各自将"每层 × 每块"的显存区域预先登记为传输描述符列表；传输时只需提交"源块 id 列表 → 目标块 id 列表"，由 NIXL 生成批量 READ。
-3. **异构 TP**：P 与 D 的 TP 可以不同（例如 P 采用 TP=4，D 采用 TP=2）。由于 KV 按注意力头切分在各 rank 上，D 的一个 rank 需要从 P 的多个 rank 分别拉取一部分头。NixlConnector 根据双方的 TP 计算映射关系。【待核：支持的组合与约束，如要求 D 的 TP 能整除 P 的 TP 或反之】
+3. **异构 TP**：P 与 D 的 TP 可以不同（例如 P 采用 TP=4，D 采用 TP=2）。由于 KV 按注意力头切分在各 rank 上，D 的一个 rank 需要从 P 的多个 rank 分别拉取一部分头。NixlConnector 根据双方的 TP 计算映射关系。在 v0.30.0 中，P 的 TP 大于或小于 D 的 TP 均受支持，但要求二者中较大者能被较小者整除；当 D 的 TP 大于 P 时，D 的多个 rank 从 P 的同一 rank 分别读取各自对应的 KV 头；当 P 的 TP 大于 D 时，D 的每个 rank 从 P 的多个 rank 读取（GQA 下对持有相同 KV 头的远端 rank 去重）；对于 MLA 模型，KV 在各 rank 上复制，仅需从一个远端 rank 读取。
 4. **延迟释放与超时**：P 在 `request_finished` 中返回延迟释放后，相关块的引用将保持至收到 D 的通知；若因 D 崩溃或请求被取消而导致通知始终未到达，P 将在超时（`VLLM_NIXL_ABORT_REQUEST_TIMEOUT`，默认值为数分钟量级）后强制释放，以防止块泄漏。
 5. **布局与连续性**：若 KV 布局使同一块中各注意力头的数据不连续，一次块传输将被拆分为多个小段，描述符数量与传输效率均会受到影响。部分后端提供 HND 布局（头维在前），以改善 PD 传输的连续性。
 
@@ -110,7 +110,7 @@ prefill 是计算受限的大块计算，一条 8 000 token 的 prompt 在 8B �
 
 <p align="center"><em>图3：D 侧单个请求的 KV 生命周期状态机</em></p>
 
-练习中的状态机即为此图。其与真实系统的对应关系如下：ALLOCATED 对应 `update_state_after_alloc` 之后、请求处于 `WAITING_FOR_REMOTE_KVS` 的阶段；TRANSFERRING 对应 Worker 已提交 NIXL 传输；READY 对应调度器收到完成信号、将请求恢复为可调度状态；abort 路径对应传输失败时的处理——较新版本可选择将失败的块标记为无效，并回退为在本地重新计算 prefill，而不是使整个请求失败。【待核：0.30.x 的失败恢复策略】
+练习中的状态机即为此图。其与真实系统的对应关系如下：ALLOCATED 对应 `update_state_after_alloc` 之后、请求处于 `WAITING_FOR_REMOTE_KVS` 的阶段；TRANSFERRING 对应 Worker 已提交 NIXL 传输；READY 对应调度器收到完成信号、将请求恢复为可调度状态；abort 路径对应传输失败时的处理。在 v0.30.0 中，Worker 通过 `get_block_ids_with_load_errors()` 上报加载失败的块，处理方式由 `--kv-transfer-config` 中的 `kv_load_failure_policy` 决定：默认值 `"fail"` 使该请求立即以错误结束；设为 `"recompute"` 时，则重新调度该请求，在本地重新计算加载失败的块。
 
 **READY 之后不允许 abort 回到传输状态、IDLE 不允许直接 complete 的原因**：这些非法转移在真实系统中分别对应"重复释放块"与"使用尚未传输的 KV"，前者导致块引用计数错乱，后者导致输出乱码。通过状态机显式拒绝非法事件，是在分布式异步系统中保持块记账一致性的基本手段。
 
@@ -127,7 +127,7 @@ CUDA_VISIBLE_DEVICES=1 VLLM_NIXL_SIDE_CHANNEL_PORT=5601 \
 vllm serve Qwen/Qwen3-8B --port 8200 \
   --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_both"}'
 
-# 代理：vLLM 仓库中的示例代理（路径以 0.30.x 为准【待核】）
+# 代理：vLLM 仓库中的示例代理（v0.30.0 中位于以下路径）
 python tests/v1/kv_connector/nixl_integration/toy_proxy_server.py \
   --prefiller-hosts localhost --prefiller-ports 8100 \
   --decoder-hosts localhost --decoder-ports 8200 --port 8000
@@ -167,7 +167,7 @@ python -m pytest exercises/F3_kv_state_machine -q
 ## 12. 延伸阅读
 
 - 论文：DistServe（OSDI'24）、Splitwise（ISCA'24）、Mooncake（以 KV 为中心的分离架构）
-- 源码：`vllm/distributed/kv_transfer/kv_connector/v1/`（`base.py`、`nixl_connector.py`、`factory.py`）、`vllm/v1/core/sched/scheduler.py` 中与 connector 相关的分支
+- 源码：`vllm/distributed/kv_transfer/kv_connector/v1/`（`base.py`、`nixl/`（NixlConnector 的实现子包）、`factory.py`）、`vllm/v1/core/sched/scheduler.py` 中与 connector 相关的分支
 - vLLM 文档：Disaggregated Prefilling、NixlConnector 使用说明；NVIDIA NIXL 项目文档
 
 ---

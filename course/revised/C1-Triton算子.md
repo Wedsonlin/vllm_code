@@ -2,7 +2,7 @@
 
 > **版本**：vLLM 0.30.x（V1 引擎）｜**模块**：C-算子与图优化｜**对应原课**：第 8 课（Triton 正式课程；原先错误标注为"第 8 课"的外部框架 torch.compile 文档已归档，不属于本课范围）
 > **导航**：上一课：[B6-架构总览] → **本课 C1** → 下一课：[C2-CUDAGraph]
-> **练习**：`exercises/C1_triton_vector_add`（默认使用 numpy 路径，GPU 路径为可选）｜**源码标注**：标有【待核】之处以 0.30.x tag 的源码为准。
+> **练习**：`exercises/C1_triton_vector_add`（默认使用 numpy 路径，GPU 路径为可选）｜**源码标注**：文中涉及的源码路径、符号与参数已对照 vLLM v0.30.0 tag 的源码核实。
 
 ## 0. 先修要求与学习目标
 
@@ -94,7 +94,7 @@ def add(x, y):
 
 1. **间接寻址**：对每个块，先查询块表得到物理块号，再计算该块 K/V 的基址。由于块内 16 个 token 的 K 是连续存储的，一次加载仍为合并访存。
 2. **在线 softmax（FlashAttention 的思想）**：无需先计算全部分数再执行 softmax，而是维护运行最大值 m 与归一化和 l，并逐块更新，从而避免将长度等于上下文长度的分数向量写回显存。
-3. **长上下文下的并行度问题**：当 batch 较小而上下文较长时（如 batch=1、上下文为 128K），程序实例数仅等于 KV 头数，远不足以占满 132 个 SM。解决方法是 **split-KV**（Flash-Decoding）：将上下文切分为多段并行计算，最后通过 log-sum-exp 合并。vLLM 的 Triton 统一注意力 kernel 对 Decode 采用了类似的分段策略。【待核：0.30.x 中具体启发式】
+3. **长上下文下的并行度问题**：当 batch 较小而上下文较长时（如 batch=1、上下文为 128K），程序实例数仅等于 KV 头数，远不足以占满 132 个 SM。解决方法是 **split-KV**（Flash-Decoding）：将上下文切分为多段并行计算，最后通过 log-sum-exp 合并。vLLM 的 Triton 统一注意力 kernel 对 Decode 采用了类似的分段策略：当批次仅含 Decode（`max_seqlen_q == 1`）且序列数不超过阈值 `seq_threshold_3D` 时，改用 3D 启动网格，将每条序列的 KV 切分为 16 段（`NUM_PAR_SOFTMAX_SEGMENTS`）并行计算，再由 `reduce_segments` 合并；该阈值默认为 `128 // num_kv_heads`，启用 Decode CUDA Graph 时取与之最接近的捕获尺寸；启用批次不变性（batch invariance）时不使用 3D 路径。
 4. **Prefill 与 Decode 的统一**：V1 的 `triton_unified_attention` 以同一个 kernel 处理一维压平的变长批次（B6），每个程序实例处理某一请求的一段 query（若干 token），同时适用于 Decode（query 长度为 1）与 Prefill。
 
 ## 5. vLLM V1 注意力后端抽象
@@ -105,10 +105,10 @@ def add(x, y):
 
 源码要点：
 
-1. `vllm/attention/selector.py`：`get_attn_backend(head_size, dtype, kv_cache_dtype, block_size, use_mla, ...)` → `current_platform.get_attn_backend_cls(...)`（`vllm/platforms/cuda.py` 中按计算能力与特性确定选择优先级，候选包括 FlashAttention、FlashInfer、Triton、FlexAttention 及多种 MLA 后端）。用户可通过 `VLLM_ATTENTION_BACKEND=TRITON_ATTN` 等方式强制指定。【待核：0.30.x 可能改为 `--attention-backend` 或 `attention_config` 配置项】
+1. `vllm/v1/attention/selector.py`：`get_attn_backend(head_size, dtype, kv_cache_dtype, use_mla, ...)`（`block_size` 改由函数内部从 `cache_config` 读取） → `current_platform.get_attn_backend_cls(...)`（`vllm/platforms/cuda.py` 中按计算能力与特性确定选择优先级，候选包括 FlashAttention、FlashInfer、Triton、FlexAttention 及多种 MLA 后端）。用户可通过 `--attention-backend TRITON_ATTN` 或 `--attention-config '{"backend": "TRITON_ATTN"}'` 强制指定；v0.30.0 中已不再提供环境变量 `VLLM_ATTENTION_BACKEND`。
 2. `vllm/v1/attention/backends/`：每个后端文件包含三类组件：`XxxBackend`（静态描述：名称、支持的 head size 与 dtype、KV 形状、builder 与 impl 类）、`XxxMetadataBuilder`（每步将通用元数据转换为后端专用元数据；声明 `cudagraph_support` 能力级别，C2 中将用到）、`XxxImpl`（其 `forward` 实际调用 kernel）。
-3. `vllm/v1/attention/backends/triton_attn.py`：`TritonAttentionBackend` / `TritonAttentionImpl`，核心 kernel 位于 `vllm/attention/ops/triton_unified_attention.py`（`unified_attention`）；KV 写入使用 `triton_reshape_and_cache_flash` 或 CUDA 版本的 `reshape_and_cache_flash`。【待核：ops 目录在 0.30.x 中可能已迁移至 `vllm/v1/attention/ops/`】
-4. `vllm/attention/layer.py`：`Attention` 层的 `forward` 调用 `torch.ops.vllm.unified_attention_with_output(...)`，这是一个已注册的自定义算子，其内部获取 forward context 后再调用 `self.impl.forward`。该算子同时也是 torch.compile 的分割点（C3）。
+3. `vllm/v1/attention/backends/triton_attn.py`：`TritonAttentionBackend` / `TritonAttentionImpl`，核心 kernel 位于 `vllm/v1/attention/ops/triton_unified_attention.py`（`unified_attention`）；KV 写入使用 `triton_reshape_and_cache_flash`（`vllm/v1/attention/ops/triton_reshape_and_cache_flash.py`）或 CUDA 版本的 `reshape_and_cache_flash`。
+4. `vllm/model_executor/layers/attention/attention.py`：`Attention` 层的 `forward` 调用 `torch.ops.vllm.unified_attention_with_output(...)`，这是一个已注册的自定义算子，其内部获取 forward context 后再调用 `self.impl.forward`。该算子同时也是 torch.compile 的分割点（C3）。
 5. 其他 Triton kernel 示例：`vllm/model_executor/layers/fused_moe/fused_moe.py`（`fused_moe_kernel`，E3）、`vllm/v1/sample/rejection_sampler.py`（拒绝采样 kernel，F1），以及 `vllm/model_executor/layers/quantization/` 下的若干量化 kernel。
 
 ## 5.5 Triton 后端与 CUDA 后端的选择
@@ -165,7 +165,7 @@ python -m pytest exercises/C1_triton_vector_add -q -m gpu
 
 - Triton 官方教程：Vector Addition、Fused Softmax、Matrix Multiplication、Fused Attention
 - 论文：FlashAttention / FlashAttention-2、Flash-Decoding 技术博客
-- 源码：`vllm/v1/attention/backends/`、`vllm/attention/ops/`、`vllm/attention/selector.py`、`vllm/platforms/cuda.py`
+- 源码：`vllm/v1/attention/backends/`、`vllm/v1/attention/ops/`、`vllm/v1/attention/selector.py`、`vllm/platforms/cuda.py`
 
 ---
 

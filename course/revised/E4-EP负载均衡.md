@@ -2,7 +2,7 @@
 
 > **版本**：vLLM 0.30.x（V1 引擎）｜**模块**：E-分布式｜**对应原课**：第 15 课
 > **导航**：上一课：[E3-专家并行] → **本课 E4** → 下一课：[F1-采样与投机解码]
-> **练习**：不设独立目录，复用 `exercises/E3_moe_dispatch_sim` 中的负载统计函数（见第 9 节）｜**源码标注**：EPLB 参数在近期若干版本中已由多个独立参数收敛为一个配置对象，标有【待核】之处以 0.30.x tag 的源码为准。
+> **练习**：不设独立目录，复用 `exercises/E3_moe_dispatch_sim` 中的负载统计函数（见第 9 节）｜**源码标注**：EPLB 参数在近期若干版本中已由多个独立参数收敛为一个配置对象，文中涉及的源码路径、符号与参数已对照 vLLM v0.30.0 tag 的源码核实。
 
 ## 0. 先修要求与学习目标
 
@@ -45,11 +45,11 @@ E3 的练习表明，不均衡比例 = 最大负载 / 平均负载。MoE 层通�
 
 源码要点：
 
-1. `vllm/distributed/eplb/eplb_state.py`：`EplbState`（`build()` 初始化映射；`step()` 在每一步调用，记录负载，并在达到间隔时触发 `rearrange()`）；保存 `expert_load_pass`、`expert_load_window` 以及三张映射表。
-2. `vllm/distributed/eplb/rebalance_algo.py`：`rebalance_experts(weight, num_replicas, num_groups, num_nodes, num_gpus)`，实现层次化均衡（hierarchical）与全局均衡两种策略（源自 DeepSeek 开源的 EPLB 算法）。
+1. `vllm/distributed/eplb/eplb_state.py`：`EplbState`（`add_model()` 初始化映射，旧版本中为 `build()`；`step()` 在每一步调用，记录负载，并在达到间隔时触发 `rearrange()`）；并按模型（`EplbModelState`）保存 `expert_load_pass`、`expert_load_window` 以及三张映射表。
+2. `vllm/distributed/eplb/policy/default.py`（旧版本中为 `rebalance_algo.py`）：`DefaultEplbPolicy.rebalance_experts(weight, num_replicas, num_groups, num_nodes, num_ranks, ...)`（策略由 `EPLBConfig.policy` 选择，抽象接口为 `policy/abstract.py` 中的 `AbstractEplbPolicy`），实现层次化均衡（hierarchical）与全局均衡两种策略（源自 DeepSeek 开源的 EPLB 算法）。
 3. `vllm/distributed/eplb/rebalance_execute.py`：`rearrange_expert_weights_inplace()`，计算每张卡需要发送/接收的专家权重，使用 P2P 通信原地完成交换，并尽量复用已位于本卡的专家以减少搬运量。
-4. `vllm/model_executor/layers/fused_moe/layer.py`：`select_experts` 中启用 EPLB 时的映射与负载记录。
-5. 启用参数：`--enable-eplb` 与 `--eplb-config '{"window_size": 1000, "step_interval": 3000, "num_redundant_experts": 32, "log_balancedness": true}'`（旧版本为 `--num-redundant-experts`、`--eplb-window-size`、`--eplb-step-interval` 等独立参数）。【待核：0.30.x 的字段名与默认值】
+4. `vllm/model_executor/layers/fused_moe/router/base_router.py`：`BaseRouter._apply_eplb_mapping()`，在 `select_experts` 的路由过程中完成启用 EPLB 时的映射与负载记录（旧版本中位于 `fused_moe/layer.py`）。
+5. 启用参数：`--enable-eplb` 与 `--eplb-config '{"window_size": 1000, "step_interval": 3000, "num_redundant_experts": 32, "log_balancedness": true}'`（旧版本为 `--num-redundant-experts`、`--eplb-window-size`、`--eplb-step-interval` 等独立参数，v0.30.0 中已移除）。`EPLBConfig` 的默认值为 `window_size=1000`、`step_interval=3000`、`num_redundant_experts=0`、`log_balancedness=false`，此外还包括 `use_async`（默认 `true`，即非阻塞重排）、`policy` 与 `communicator` 等字段。
 
 ## 4. 均衡算法：先复制、再装箱
 
@@ -74,7 +74,7 @@ E3 的练习表明，不均衡比例 = 最大负载 / 平均负载。MoE 层通�
 - **统计对象**：每个物理专家在每一步实际处理的词元（token）数，按层分别统计（各层的热点专家不同，因此均衡是逐层进行的）。
 - **采用滑动窗口的原因**：单步负载的噪声很大，窗口平均（如最近 1 000 步）既能反映稳定的流量模式，又能跟随负载漂移。
 - **重排间隔较长的原因**：重排需要在卡间搬运专家权重（每个专家可能达数十 MB），会造成短暂停顿；频繁重排的收益不足以抵消其代价。
-- **副本间的分流方式**：token 选中某一逻辑专家后，需在其多个副本中选择一个。简单的做法是按 token 序号或 rank 轮转，使各副本的流量大致相等；更精细的做法是优先选择同一节点上的副本，以减少跨节点流量。【待核：0.30.x 的副本选择策略】
+- **副本间的分流方式**：token 选中某一逻辑专家后，需在其多个副本中选择一个。v0.30.0 的做法是按 token 序号进行哈希分流：以 Knuth 乘法哈希计算 `(token_idx × 2654435769) mod 2^32`，再对该逻辑专家的副本数取模，得到所用副本，从而使各副本的流量大致相等；当前实现并不优先选择同一节点上的副本。
 
 ## 6. 数值示例：重排的停顿代价
 

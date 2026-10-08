@@ -2,7 +2,7 @@
 
 > **版本**：vLLM 0.30.x（V1 引擎）｜**模块**：B-运行时内核｜**对应原课**：第 5 课
 > **导航**：上一课：[B3-调度器] → **本课 B4** → 下一课：[B5-ModelRunner加载]
-> **练习**：`exercises/B4_block_pool`｜**源码标注**：标有【待核】之处以 0.30.x tag 的源码为准。
+> **练习**：`exercises/B4_block_pool`｜**源码标注**：文中涉及的源码路径、符号与参数已对照 vLLM v0.30.0 tag 的源码核实。
 
 ## 0. 先修要求与学习目标
 
@@ -64,7 +64,7 @@ PagedAttention 的做法与操作系统的虚拟内存机制完全同构：将 K
 源码要点（`vllm/v1/core/`）：
 
 1. `kv_cache_manager.py`：`KVCacheManager.get_computed_blocks()`、`allocate_slots()`、`free()`、`get_num_common_prefix_blocks()`（用于级联注意力）、`take_events()`（KV 事件，供外部路由器感知缓存状态）。
-2. `kv_cache_coordinator.py`：`UnitaryKVCacheCoordinator`（仅含一种注意力类型）、`HybridKVCacheCoordinator`（全注意力与滑动窗口等混合模型）、`KVCacheCoordinatorNoPrefixCache`。【待核：类名】
+2. `kv_cache_coordinator.py`：`UnitaryKVCacheCoordinator`（仅含一种注意力类型）、`HybridKVCacheCoordinator`（全注意力与滑动窗口等混合模型）、`KVCacheCoordinatorNoPrefixCache`。
 3. `single_type_kv_cache_manager.py`：`FullAttentionManager.find_longest_cache_hit()`；`SlidingWindowManager.remove_skipped_blocks()` 将窗口外的块替换为 null block 并提前释放。
 4. `block_pool.py`：`BlockPool.get_new_blocks()`、`touch()`、`free_blocks()`、`cache_full_blocks()`、`_maybe_evict_cached_block()`、`reset_prefix_cache()`；块 0 为保留的 `null_block`，永不分配给请求。
 5. `kv_cache_utils.py`：`KVCacheBlock`（`block_id`、`ref_cnt`、`_block_hash`、链表指针）、`FreeKVCacheBlockQueue`（支持 O(1) 的中间删除）、`hash_block_tokens()`、`get_request_block_hasher()`、`get_kv_cache_configs()` / `get_num_blocks()`（由显存计算块数）。

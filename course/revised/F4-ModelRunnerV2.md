@@ -2,7 +2,7 @@
 
 > **版本**：vLLM 0.30.x（V1 引擎）｜**模块**：F-高级特性与性能｜**对应原课**：第 20 课
 > **导航**：上一课：[F3-PD分离] → **本课 F4** → 下一课：无（课程终点，请回到《00-学习路径与总索引》进行复盘）
-> **练习**：无独立目录，以 B3、B4、C2 三个练习进行组合回归（见第 9 节）｜**源码标注**：ModelRunner V2 是仍在演进中的新实现，**本课所有具体路径、类名与开关均标为【待核】**，请以 0.30.x tag 中 `vllm/v1/worker/gpu/` 目录（或同等位置）的实际代码为准；本课重点讲解设计动机与思路，二者远比具体命名稳定。
+> **练习**：无独立目录，以 B3、B4、C2 三个练习进行组合回归（见第 9 节）｜**源码标注**：ModelRunner V2 仍处于活跃开发阶段（源码目录说明中标注为 Experimental），本课所列路径、类名与开关已对照 vLLM v0.30.0 tag 中 `vllm/v1/worker/gpu/` 目录的源码核实，后续版本可能继续调整；本课重点讲解设计动机与思路，二者远比具体命名稳定。
 
 ## 0. 先修要求与学习目标
 
@@ -41,7 +41,7 @@ V2 的"稳定槽位"思路是：请求一旦分配了槽位便不再移动，结
 
 ## 2. V2 的设计原则
 
-ModelRunner V2 的思路可归纳为以下四条（以下为设计层面的描述，实现细节【待核】）：
+ModelRunner V2 的思路可归纳为以下四条（以下为设计层面的描述，对应实现位于 v0.30.0 的 `vllm/v1/worker/gpu/` 目录，见第 6 节；其中体积可能很大的 token 缓冲 `all_token_ids` 采用 UVA，即 GPU 可直接访问的锁页主机内存，而非显存）：
 
 1. **状态常驻 GPU**：每个请求的关键状态（已有 token、`num_computed_tokens`、块表、采样参数）存放于 GPU 上按请求索引的张量中。请求加入时一次性写入，此后每步只需传输极少量的增量（例如本步调度的 token 数）。CPU 端不再需要"压缩"操作——请求使用稳定的槽位索引，空槽位直接跳过。
 2. **输入准备 kernel 化**：positions、input_ids（从 GPU 上的 token 缓冲 gather 得到）、query_start_loc、seq_lens、slot_mapping 等由一至两个 Triton kernel 在 GPU 上直接计算，CPU 仅提供"本步每个请求调度的 token 数"这一少量信息。
@@ -71,18 +71,18 @@ ITL 由 16.8 ms 降至约 14.2 ms，降幅约 15%，吞吐量相应提升约 18%
 
 **输入准备 kernel 的代价**：为 256 个请求生成全部输入元数据，在 GPU 上仅需若干微秒级的小 kernel，并且可被 CUDA Graph 捕获或与其他操作一同提交；相比之下，在 CPU 上以 numpy 处理同等规模的数据需要数百微秒，此外还须计入 H2D 拷贝与同步的开销。
 
-## 6. 关键模块（全部【待核】）
+## 6. 关键模块
 
-以下为 V2 可能的代码组织方式。阅读 0.30.x 源码时，应按"职责"进行对应，而不应依赖具体的文件名：
+以下按职责列出 V2 的代码组织方式及其在 v0.30.0 中的对应位置（均位于 `vllm/v1/worker/gpu/` 下）；后续版本中文件名可能调整，阅读时仍应以"职责"为线索：
 
-- **主循环**：新的 ModelRunner 类，负责 `execute_model` 的编排，其接口与 V1 保持一致（接收 `SchedulerOutput`，返回 `ModelRunnerOutput`），从而使 Worker、Executor、EngineCore 无需修改；
-- **请求状态**：GPU 上的请求状态表（每个请求一行：token 缓冲、长度、采样参数索引等）以及槽位分配器；
-- **输入批次构造**：基于 Triton 的 `prepare_inputs` 类 kernel；
-- **块表**：在 GPU 端维护的块表与 slot_mapping 计算；
-- **注意力元数据**：复用 V1 的后端抽象（C1），由独立模块基于 GPU 上的通用元数据构造；
-- **CUDA Graph 管理**：由独立模块负责捕获与分发（C2 中的概念不变）；
-- **采样器与投机解码**：直接读写 GPU 状态的采样器，以及经适配的 drafter 接口；
-- **启用方式**：可能通过环境变量（如 `VLLM_USE_V2_MODEL_RUNNER=1`）或配置项启用，默认值与所支持的特性范围以 0.30.x 文档为准。【待核】
+- **主循环**：新的 ModelRunner 类，负责 `execute_model` 的编排，其接口与 V1 保持一致（接收 `SchedulerOutput`，返回 `ModelRunnerOutput`），从而使 Worker、Executor、EngineCore 无需修改；对应 `model_runner.py` 中的 `GPUModelRunner`（与 V1 同名），与 V1 相同，采样由随后调用的 `sample_tokens()` 完成；
+- **请求状态**：GPU 上的请求状态表（每个请求一行：token 缓冲、长度、采样参数索引等）以及槽位分配器；对应 `states.py` 中的 `RequestState`（`free_indices` 即空闲槽位列表）；
+- **输入批次构造**：基于 Triton 的 `prepare_inputs` 类 kernel；对应 `input_batch.py`（`InputBatch`、`InputBuffers`，以及 `prepare_prefill_inputs`、`prepare_pos_seq_lens`、`combine_sampled_and_draft_tokens` 等 kernel）；
+- **块表**：在 GPU 端维护的块表与 slot_mapping 计算；对应 `block_table.py` 中的 `BlockTables`（`compute_slot_mappings()` 由 Triton kernel 实现）；
+- **注意力元数据**：复用 V1 的后端抽象（C1），由独立模块基于 GPU 上的通用元数据构造；对应 `attn_utils.py`（`init_attn_backend()`、`build_attn_metadata()` 等）；
+- **CUDA Graph 管理**：由独立模块负责捕获与分发（C2 中的概念不变）；对应 `cudagraph_utils.py` 中的 `CudaGraphManager` / `ModelCudaGraphManager`；
+- **采样器与投机解码**：直接读写 GPU 状态的采样器，以及经适配的 drafter 接口；对应 `sample/`（`Sampler` 等）与 `spec_decode/`（`RejectionSampler`、`BaseSpeculator`，以及 `eagle/`、`mtp/`、`dflash/` 等子目录）；
+- **启用方式**：由环境变量 `VLLM_USE_V2_MODEL_RUNNER` 控制。v0.30.0 中该变量默认未设置，此时只要 Triton 可用且配置中不含 V2 尚不支持的特性，即**默认使用 V2**；V2 尚不支持的特性包括 stock torch.compile、TP>1 下的序列并行、`ngram`/`ngram_gpu`/`draft_model`/`suffix`/`medusa`/`mlp_speculator`/`custom_class` 等投机方法、EAGLE 的并行草稿、DBO 的部分组合、弹性 EP、自定义 logits processor 以及 `mamba_cache_mode="all"`，遇到这些配置时自动回退至 V1 并记录警告；ROCm 上的少数模型架构亦默认使用 V1。设置 `VLLM_USE_V2_MODEL_RUNNER=0` 可强制使用 V1，设置为 `1` 可强制使用 V2。
 
 ## 7. 迁移与验证
 
@@ -129,7 +129,7 @@ python -m pytest exercises/B3_scheduler_token_budget exercises/B4_block_pool exe
 
 ## 11. 延伸阅读
 
-- 源码：`vllm/v1/worker/gpu_model_runner.py`（V1，用于对照阅读）与 `vllm/v1/worker/gpu/`（V2，【待核】）
+- 源码：`vllm/v1/worker/gpu_model_runner.py`（V1，用于对照阅读）与 `vllm/v1/worker/gpu/`（V2，入口为 `model_runner.py`）
 - vLLM 官方博客与 RFC 中关于 ModelRunner 重构与异步调度的讨论
 - 本课程 B5、B6、C2、F2 的相关章节
 

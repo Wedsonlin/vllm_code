@@ -2,7 +2,7 @@
 
 > **版本**：vLLM 0.30.x（V1 引擎）｜**模块**：B-运行时内核｜**对应原课**：第 2 课
 > **导航**：上一课：[A1-环境搭建] → **本课 B1** → 下一课：[B2-Worker与Executor]
-> **练习**：`exercises/B1_zmq_patterns`｜**源码标注约定**：未加标注的路径与符号在 V1 主线中长期保持稳定；标有【待核】者表示其在 0.30.x 中可能已更名或拆分，应以执行 `git checkout v0.30.x` 后的 `rg` 检索结果为准。
+> **练习**：`exercises/B1_zmq_patterns`｜**源码标注约定**：文中路径与符号已对照 vLLM v0.30.0 tag 的源码核实；如需自行复核，可在执行 `git checkout v0.30.0` 后以 `rg` 检索。
 
 ## 0. 先修要求与学习目标
 
@@ -53,10 +53,10 @@ V1 的分工原则如下：
 
 ### 4.1 前端：请求进入
 
-1. `vllm/entrypoints/openai/api_server.py`：`build_async_engine_client()` 创建 `AsyncLLM`（`AsyncLLM.from_vllm_config`）；路由 `/v1/chat/completions` 交由 `OpenAIServingChat.create_chat_completion()`（`serving_chat.py`）处理。【待核：0.30.x 中 serving 类可能拆分至 `entrypoints/openai/chat_completion/` 等子目录】
+1. `vllm/entrypoints/launchers/api_server/entry.py`：`build_async_engine_client()` 创建 `AsyncLLM`（`AsyncLLM.from_vllm_config`；原 `vllm/entrypoints/openai/api_server.py` 在 v0.30.0 中仅为带弃用警告的转发模块）；路由 `/v1/chat/completions` 定义于 `vllm/entrypoints/openai/chat_completion/api_router.py`，交由 `OpenAIServingChat.create_chat_completion()`（`vllm/entrypoints/openai/chat_completion/serving.py`）处理。
 2. `OpenAIServingChat` 渲染 chat template 并执行 tokenize，随后调用 `engine_client.generate(...)` 获得一个异步生成器；`chat_completion_stream_generator()` 遍历该生成器并组装 SSE。
 3. `vllm/v1/engine/async_llm.py`：`AsyncLLM.generate()` → `AsyncLLM.add_request()`：
-   - `self.processor.process_inputs(...)`（`vllm/v1/engine/processor.py`，【待核：新版本中命名为 `input_processor.py` / `InputProcessor`】）将 prompt、`SamplingParams` 与多模态输入规整为 `EngineCoreRequest`（定义于 `vllm/v1/engine/__init__.py`，类型为 `msgspec.Struct`，字段包括 `request_id`、`prompt_token_ids`、`sampling_params`、`arrival_time`、`mm_features` 等）；
+   - `self.input_processor.process_inputs(...)`（`vllm/v1/engine/input_processor.py` 中的 `InputProcessor`）将 prompt、`SamplingParams` 与多模态输入规整为 `EngineCoreRequest`（定义于 `vllm/v1/engine/__init__.py`，类型为 `msgspec.Struct`，字段包括 `request_id`、`prompt_token_ids`、`sampling_params`、`arrival_time`、`mm_features` 等）；
    - `self.output_processor.add_request(request, prompt, parent_req, index, queue)`：为该请求创建 `RequestState`，其中挂载一个 `RequestOutputCollector`；
    - `await self.engine_core.add_request_async(request)`。
    - 当 `n>1` 时，请求将拆分为多个子请求（`ParentRequest`），并在 OutputProcessor 中重新合并。
@@ -69,7 +69,7 @@ V1 的分工原则如下：
 7. `run_busy_loop()` 的每一轮：
    - `_process_input_queue()`：若当前不存在任何未完成请求，则阻塞等待 `input_queue.get()`；否则以非阻塞方式取空队列，并交由 `_handle_client_request()` → `self.add_request()` → `Request.from_engine_core_request()` → `self.scheduler.add_request(req)` 处理；若为 ABORT 请求，则执行 `scheduler.finish_requests(ids, FINISHED_ABORTED)`。
    - `_process_engine_step()` → `self.step_fn()`，即 `step()`；当流水线并行度 PP>1 或启用异步调度时，该函数为 `step_with_batch_queue()`（多个批次同时在途，见 E2/F4）。
-8. `EngineCore.step()`：`scheduler_output = self.scheduler.schedule()` → `model_output = self.model_executor.execute_model(scheduler_output)` → `engine_core_outputs = self.scheduler.update_from_output(scheduler_output, model_output)`，返回按 `client_index` 分组的 `EngineCoreOutputs`。【待核：新版本中 `execute_model` 与 `sample_tokens` 可能拆分为两次调用】
+8. `EngineCore.step()`：`scheduler_output = self.scheduler.schedule()` → `future = self.model_executor.execute_model(scheduler_output, non_block=True)` → `grammar_output = self.scheduler.get_grammar_bitmask(scheduler_output)` → `model_output = future.result()`；若其为 `None`（即前向计算与采样已拆分为两次调用），则再执行 `model_output = self.model_executor.sample_tokens(grammar_output)` → `engine_core_outputs = self.scheduler.update_from_output(scheduler_output, model_output)`，返回按 `client_index` 分组的 `EngineCoreOutputs`。
 9. 结果放入 `output_queue`；输出 IO 线程 `process_output_sockets()` 对其编码，并通过 `send_multipart` 发送至 PUSH socket。
 
 ### 4.3 前端：结果返回

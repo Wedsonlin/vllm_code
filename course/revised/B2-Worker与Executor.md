@@ -2,7 +2,7 @@
 
 > **版本**：vLLM 0.30.x（V1 引擎）｜**模块**：B-运行时内核｜**对应原课**：第 3 课
 > **导航**：上一课：[B1-Engine与流式执行] → **本课 B2** → 下一课：[B3-调度器]
-> **练习**：`exercises/B2_executor_handshake_sim`｜**源码标注**：标有【待核】的路径或符号在 0.30.x 中可能已调整，以 tag 源码为准。
+> **练习**：`exercises/B2_executor_handshake_sim`｜**源码标注**：文中涉及的源码路径、符号与参数已对照 vLLM v0.30.0 tag 的源码核实。
 
 ## 0. 先修要求与学习目标
 
@@ -49,14 +49,14 @@ Executor 可被视为一个"远程过程调用的扇出器"：上层仅调用一
 ## 4. 源码分析（按调用顺序）
 
 1. `vllm/v1/engine/core.py`：`EngineCore.__init__` → `self.model_executor = executor_class(vllm_config)` → `self._initialize_kv_caches(vllm_config)` → 根据 `num_gpu_blocks` 构造 `Scheduler`。
-2. `vllm/v1/executor/abstract.py`：`Executor.get_class()`；`Executor.__init__` 调用 `_init_executor()`。【待核：0.30.x 可能已将 `UniProcExecutor` 移至 `uniproc_executor.py`】
+2. `vllm/v1/executor/abstract.py`：`Executor.get_class()`；`Executor.__init__` 调用 `_init_executor()`；单进程执行器 `UniProcExecutor` 定义于同目录的 `uniproc_executor.py`。
 3. `vllm/v1/executor/multiproc_executor.py`：
    - `MultiprocExecutor._init_executor()`：校验 `world_size == tp × pp`（× PCP 等），设置 `distributed_init_method`（本机 tcp 端口）；创建 `self.rpc_broadcast_mq = MessageQueue(world_size, local_world_size, max_chunk_bytes=...)`，并将其 `handle` 传递给子进程；循环调用 `WorkerProc.make_worker_process(...)`；执行 `WorkerProc.wait_for_ready(unready_workers)`；启动 `worker_monitor` 线程以监视子进程的意外退出。
    - `WorkerProc.worker_main()`：子进程入口；`WorkerProc(...)` 的构造过程依次执行 `wrapper.init_worker()`、`worker.init_device()`、`worker.load_model()`，随后经 `ready_pipe` 回报 READY，并进入 `worker_busy_loop()`。
    - `worker_busy_loop()`：`method, args, kwargs, output_rank = self.rpc_broadcast_mq.dequeue()` → `func = getattr(self.worker, method)` → `output = func(*args, **kwargs)` → 若 `output_rank is None or self.rank == output_rank`，则执行 `worker_response_mq.enqueue((SUCCESS, output))`；发生异常时返回 `FAILURE` 及 traceback 字符串。
    - `MultiprocExecutor.collective_rpc()`：执行 `rpc_broadcast_mq.enqueue((method, args, kwargs, output_rank))`，随后从响应队列执行 `dequeue(timeout)`。`execute_model()` 将 `unique_reply_rank` 设为 `self.output_rank`（通常为最后一个 PP stage 的 TP rank 0），因此仅有一个 Worker 回传 `ModelRunnerOutput`，从而避免产生 N 份重复结果。
 4. `vllm/distributed/device_communicators/shm_broadcast.py`：`MessageQueue`。本机读者通过共享内存环形缓冲区读取数据，写者写入一次、N 个读者各读取一次；跨机读者经由 ZMQ XPUB/SUB 读取。小消息直接存放于共享内存块，超过 `max_chunk_bytes` 的消息经 ZMQ 溢出路径传输。
-5. `vllm/v1/worker/gpu_worker.py`：`Worker.init_device()`（`torch.cuda.set_device`、记录初始显存快照、`init_worker_distributed_environment()` → `ensure_model_parallel_initialized(tp, pp)`）、`load_model()`、`determine_available_memory()`、`initialize_from_config()`、`compile_or_warm_up_model()`、`execute_model()`。
+5. `vllm/v1/worker/gpu_worker.py`：`Worker.init_device()`（`torch.accelerator.set_device_index`、记录初始显存快照、`init_worker_distributed_environment()` → `ensure_model_parallel_initialized(tp, pp)`）、`load_model()`、`determine_available_memory()`、`initialize_from_config()`、`compile_or_warm_up_model()`、`execute_model()`。
 
 ## 4.5 Worker 内部的三层分工
 
@@ -81,7 +81,7 @@ Executor 可被视为一个"远程过程调用的扇出器"：上层仅调用一
 
 在一个普通的 Decode 步中，`MultiprocExecutor.execute_model()` 的往返过程可追踪如下：EngineCore 主线程将 `("execute_model", (scheduler_output,), {}, output_rank)` 写入广播队列；8 个 Worker 几乎同时读取同一条消息，各自在本卡上准备输入并执行前向计算；TP 层内部通过 NCCL 或自定义 all-reduce 进行同步；最后仅由 output_rank 对应的 Worker 将采样结果写回其响应队列；EngineCore 读取该结果后进入 `update_from_output`。
 
-此处存在一个容易被忽视的性能因素：在 EngineCore 等待响应期间，CPU 主线程处于空闲状态。V1 在启用异步调度（`--async-scheduling`）后，会使 `execute_model` 以 non-blocking 方式返回一个 Future，EngineCore 可先执行下一步的调度，待需要结果时再行获取，从而将"调度的 CPU 时间"隐藏于"GPU 计算时间"之后。当 PP>1 时，`max_concurrent_batches` 等于 PP 大小，EngineCore 通过 `step_with_batch_queue()` 使多个批次同时处于流水线中，这同样依赖于 Executor 返回 Future 的能力。【待核：0.30.x 中 async scheduling 是否默认开启，以及其与投机解码、PP 的兼容范围】
+此处存在一个容易被忽视的性能因素：在 EngineCore 等待响应期间，CPU 主线程处于空闲状态。V1 在启用异步调度（`--async-scheduling`）后，会使 `execute_model` 以 non-blocking 方式返回一个 Future，EngineCore 可先执行下一步的调度，待需要结果时再行获取，从而将"调度的 CPU 时间"隐藏于"GPU 计算时间"之后。当 PP>1 时，`max_concurrent_batches` 等于 PP 大小，EngineCore 通过 `step_with_batch_queue()` 使多个批次同时处于流水线中，这同样依赖于 Executor 返回 Future 的能力。在 v0.30.0 中，`async_scheduling` 的默认值为 `None`，即在不存在不兼容项时自动开启（可用 `--no-async-scheduling` 关闭）；以下情形将自动关闭（显式开启时则直接报错）：池化（pooling）模型、EAGLE/MTP/draft_model/ngram_gpu/DSpark 以外的投机解码方法（如 CPU 上的 `ngram`）、`disable_padded_drafter_batch=True`、不支持异步调度的分布式执行后端，以及 ROCm 上的 DeepEP 高吞吐 DBO 组合。启用异步调度时，`max_concurrent_batches` 在 PP=1 时为 2；在 PP>1 时，V1 ModelRunner 为 PP 大小，ModelRunner V2 为 PP 大小加 1（`vllm/config/vllm.py:589-599,1407-1487`）。
 
 ## 6. 显存预算：determine_available_memory 的手工计算
 

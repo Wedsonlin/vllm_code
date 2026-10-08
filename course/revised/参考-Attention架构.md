@@ -1,7 +1,7 @@
 # R1 · 参考阅读：Attention 架构变体（非主线内容）
 
 > 【注意】**非主线内容**：本文为参考阅读材料，不属于 vLLM 正式课程序列，完成主线课程无需阅读本文。原"番外篇"的内部标题误写为"第 10 课"，并引用了外部课程；本版已删除所有跨课程引用，仅保留通用原理及其在 vLLM 中的对应实现。
-> **版本**：原理部分与框架无关；vLLM 对应实现以 0.30.x（V1）为准，标有【待核】之处以 tag 源码为准。
+> **版本**：原理部分与框架无关；vLLM 对应实现以 0.30.x（V1）为准，相关源码路径与符号已对照 v0.30.0 tag 核实。
 > **导航**：建议在完成 B4（KV 显存）与 C1（注意力后端）之后选读；读完后可返回主线课程 [C2-CUDAGraph]，或继续学习后续模块。
 > **练习**：无独立目录；可选择以 B4 的块池练习进行回归（见第 8 节）。
 
@@ -72,7 +72,7 @@ MLA 的核心步骤如下：
 3. **还原**：在概念上，K = W_UK · c、V = W_UV · c，每个头各有其上投影矩阵；
 4. **矩阵吸收**：decode 时并不实际还原 K、V。注意力分数 qᵀK = qᵀ W_UK c = (W_UKᵀ q)ᵀ c，因此可先将 W_UK 吸收进 query，使 query 直接与潜向量 c 进行点积；同理，W_UV 可吸收进输出投影。由此，decode 注意力直接在 576 维的潜空间上计算，读取的 KV 仅为潜向量。
 
-**代价与后端**：吸收之后，注意力的形态变为"多个 Q 头 × 一个共享的 576 维 KV"，相当于 head_dim 很大的 MQA，需要专用 kernel 方能高效执行；prefill 时由于 query 数量很多，吸收并不划算，通常反过来先还原 K、V，再执行常规注意力。因此，MLA 后端须分别处理 prefill 与 decode 两条路径。vLLM 在 `vllm/v1/attention/backends/mla/` 下提供了通用实现（公共逻辑位于 `common.py`）以及多个 decode 专用后端（如 FlashMLA、CUTLASS MLA、Triton MLA 等）。【待核：0.30.x 中的后端列表】
+**代价与后端**：吸收之后，注意力的形态变为"多个 Q 头 × 一个共享的 576 维 KV"，相当于 head_dim 很大的 MQA，需要专用 kernel 方能高效执行；prefill 时由于 query 数量很多，吸收并不划算，通常反过来先还原 K、V，再执行常规注意力。因此，MLA 后端须分别处理 prefill 与 decode 两条路径。在 v0.30.0 中，MLA 的公共逻辑（`MLACommonBackend`、`MLACommonMetadataBuilder`、`MLACommonImpl`）位于 `vllm/model_executor/layers/attention/mla_attention.py`；`vllm/v1/attention/backends/mla/` 下为各具体后端：decode 后端包括 FlashMLA、CUTLASS MLA、Triton MLA、FlashInfer MLA、FlashAttention MLA、TokenSpeed MLA 及 ROCm AITER MLA 等，另有面向稀疏注意力的 FlashMLA Sparse、FlashInfer MLA Sparse、FlashAttention MLA Sparse 等变体；prefill 路径的实现集中于该目录下的 `prefill/` 子目录。
 
 **与并行的交互**：潜向量不按头切分，TP 时每张 GPU 都须保存完整的潜向量 KV，这正是 E1 中大型 MoE 模型采用"注意力 DP"的根本原因。
 
@@ -96,7 +96,7 @@ MLA 的核心步骤如下：
 
 线性注意力与 Mamba 类 SSM 不保存逐 token 的 KV，而是维护一个**固定大小的状态**，每输入一个 token 即更新一次状态。decode 时每步的计算量与读取量均与上下文长度无关，因此在长上下文下优势显著；prefill 可采用分块扫描（chunked scan）并行计算。其代价是固定大小的状态属于有损压缩，精确检索远处信息的能力较弱，因此在实践中多与少量全局注意力层组成 Hybrid 结构。
 
-**vLLM 的承接**：`MambaSpec` 描述每个请求的状态大小，状态同样以"块"的形式由块池管理（每个请求占用固定数量的块）；相应的层与 kernel 位于 `vllm/model_executor/layers/mamba/` 下。前缀缓存与此类状态的兼容需要额外的机制（仅能在特定位置保存状态快照），以 0.30.x 的实现为准。【待核】
+**vLLM 的承接**：`MambaSpec` 描述每个请求的状态大小，状态同样以"块"的形式由块池管理（每个请求占用固定数量的块）；相应的层与 kernel 位于 `vllm/model_executor/layers/mamba/` 下。前缀缓存与此类状态的兼容需要额外的机制，即仅在特定位置保存状态快照：在 v0.30.0 中由 `mamba_cache_mode` 控制，启用前缀缓存时默认取 `"align"`（仅当某一调度步的最后一个 token 恰好位于块边界 `i × block_size` 时缓存其状态），`"all"` 则在每个块边界位置均缓存状态，`"none"` 对应关闭前缀缓存。
 
 ## 7. 稀疏注意力（以 DSA 为例）
 
@@ -104,7 +104,7 @@ MLA 的核心步骤如下：
 
 **数值示例**：上下文为 128K、k = 2 048 时，主注意力的每个 query 仅涉及 1.6% 的 token，计算量下降约 64 倍；但索引器本身仍须扫描全部 128K 个 token（以很小的维度与 FP8 精度），其开销随长度线性增长，只是常数要小得多。KV 容量并未减少（甚至增加了索引器自身的小规模 KV），因此其收益体现在**计算与读取带宽**上，而非容量上。
 
-**vLLM 的承接**：需要专门的注意力后端与额外的索引器 KV 规格，以及调度器与块管理对两类缓存的协调。【待核：0.30.x 中的实现位置】
+**vLLM 的承接**：需要专门的注意力后端与额外的索引器 KV 规格，以及调度器与块管理对两类缓存的协调。在 v0.30.0 中，索引器后端为 `vllm/v1/attention/backends/mla/indexer.py` 中的 `DeepseekV32IndexerBackend`（及其 V4 等派生类）；索引器缓存由 `DeepseekV32IndexerCache` 层（`vllm/model_executor/models/deepseek_v2.py`）以独立的 `MLAAttentionSpec` 声明，从而作为一类额外的 KV cache 交由块管理统一分配；主注意力则使用 FlashMLA Sparse、FlashInfer MLA Sparse 等稀疏 MLA 后端。
 
 ## 7.5 判断新模型在 vLLM 中所采用路径的方法
 

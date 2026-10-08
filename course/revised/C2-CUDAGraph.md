@@ -2,7 +2,7 @@
 
 > **版本**：vLLM 0.30.x（V1 引擎）｜**模块**：C-算子与图优化｜**对应原课**：第 9 课
 > **导航**：上一课：[C1-Triton算子] → **本课 C2** → 下一课：[C3-模型编译]
-> **练习**：`exercises/C2_cudagraph_constraints`｜**源码标注**：标有【待核】之处以 0.30.x tag 的源码为准。
+> **练习**：`exercises/C2_cudagraph_constraints`｜**源码标注**：文中涉及的源码路径、符号与参数已对照 vLLM v0.30.0 tag 的源码核实。
 
 ## 0. 先修要求与学习目标
 
@@ -84,7 +84,7 @@ out = static_y[:13]                    # 只取有效行
 
 **PIECEWISE 模式**借助 torch.compile 在注意力算子处将模型图切开（C3）：注意力之前、之间与之后的部分（GEMM、norm、激活、all-reduce）的形状仅依赖于 token 数，因此各自被捕获为小图；注意力本身在图外以 eager 方式执行，因而可处理任意混合批次。其代价是每层仍存在一次"图外"的注意力调用，CPU 开销未能完全消除。
 
-**组合模式**：`FULL_DECODE_ONLY` 仅为纯 Decode 批次捕获整图，混合批次以 eager 方式执行；`FULL_AND_PIECEWISE` 对纯 Decode 批次使用整图、对混合批次使用分段图，兼顾二者的优势，是较新版本中的默认选择。【待核：0.30.x 默认值；以及 `cudagraph_mode` 与旧参数 `full_cuda_graph` 的对应关系】`--enforce-eager` 则完全关闭图。
+**组合模式**：`FULL_DECODE_ONLY` 仅为纯 Decode 批次捕获整图，混合批次以 eager 方式执行；`FULL_AND_PIECEWISE` 对纯 Decode 批次使用整图、对混合批次使用分段图，兼顾二者的优势，是 v0.30.0 在默认优化级别（`-O2`，`-O3` 相同）下的默认选择；`-O1` 时默认为 `PIECEWISE`，`-O0` 时为 `NONE`。旧参数 `full_cuda_graph` 已不再是 `CompilationConfig` 的字段，其效果应改用 `cudagraph_mode`（如 `FULL` 或 `FULL_AND_PIECEWISE`）表达。`--enforce-eager` 则完全关闭图。
 
 ## 5. 捕获与分发的调用顺序
 
@@ -94,7 +94,7 @@ out = static_y[:13]                    # 只取有效行
 
 源码要点：
 
-1. `vllm/config/compilation.py`：`CompilationConfig.cudagraph_mode`（`CUDAGraphMode` 枚举）、`cudagraph_capture_sizes`、`max_cudagraph_capture_size`（与 `max_num_seqs` 相关）；默认捕获尺寸形如 1, 2, 4, 8, 16, 24, 32, …（8 之后以 8 为步长，更大时步长随之增大），直至上限。【待核：0.30.x 的确切默认序列】
+1. `vllm/config/compilation.py`：`CompilationConfig.cudagraph_mode`（`CUDAGraphMode` 枚举）、`cudagraph_capture_sizes`、`max_cudagraph_capture_size`（与 `max_num_seqs` 相关）；默认捕获尺寸为 `[1, 2, 4] + list(range(8, 256, 8)) + list(range(256, max_cudagraph_capture_size + 1, 16))`，即 1、2、4 之后以 8 为步长至 248，自 256 起以 16 为步长，直至上限；未显式设置时，上限取 `min(max_num_seqs × uniform_decode_query_len × 2, 512)`（数据中心级 Blackwell GPU 上为 1 024），且 `max_num_batched_tokens` 若不超过上限也会被加入列表。
 2. `vllm/v1/worker/gpu_model_runner.py`：`capture_model()`（在 `graph_capture()` 上下文中，按尺寸降序调用 `_capture_cudagraphs`，其内部调用 `_dummy_run`）；`_dummy_run()` 构造虚拟的注意力元数据，FULL 模式下还须为后端构造"可捕获"的元数据；`execute_model` 中执行 padding 并调用 `dispatch`。
 3. `vllm/v1/cudagraph_dispatcher.py`：`CudagraphDispatcher.dispatch()`，根据 `BatchDescriptor` 查找已捕获的键，优先选择 FULL，其次为 PIECEWISE，最后为 NONE。
 4. `vllm/compilation/cuda_graph.py`：`CUDAGraphWrapper.__call__()`，从 forward context 中读取当前运行时模式与 descriptor；若与自身模式一致，则执行捕获或回放，否则直接透传。PIECEWISE 模式下由编译后端为每个子图进行包装（C3）。
